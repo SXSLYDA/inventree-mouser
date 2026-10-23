@@ -53,7 +53,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        inventree: ["1.6.0", "1.6.1"]
+        # 1.5.1 = the oldest supported (MIN_VERSION) and what the OMG server runs
+        inventree: ["1.5.1", "1.6.0", "1.6.1"]
     env:
       INVENTREE_DB_ENGINE: sqlite3
       INVENTREE_DB_NAME: ${{ github.workspace }}/data/inventree.sqlite3
@@ -88,7 +89,9 @@ jobs:
         working-directory: inventree/src/backend/InvenTree
         run: |
           python manage.py migrate --noinput
-          python manage.py shell -c "from plugin.models import PluginConfig; [PluginConfig.objects.update_or_create(key=k, defaults={'active': True}) for k in ('mouser',)]"
+          # A config row for every plugin first: InvenTree 1.5 stops loading plugins at the
+          # first one without a row when it can't create it (as in "manage.py shell").
+          python manage.py shell -c "from django.utils.text import slugify; from plugin.registry import registry; from plugin.models import PluginConfig; [PluginConfig.objects.get_or_create(key=slugify(getattr(p, 'SLUG', None) or p.NAME)) for p in registry.plugin_modules]; PluginConfig.objects.filter(key='mouser').update(active=True)"
           python manage.py migrate
       - name: End-to-end
         working-directory: inventree/src/backend/InvenTree

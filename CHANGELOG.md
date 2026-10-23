@@ -4,6 +4,10 @@ Add notes for the next release under **Unreleased** as you work. `build-and-bump
 
 ## Unreleased
 
+## 0.1.1 — 2026-10-24
+
+- **Works on InvenTree 1.5** (1.5.1 and newer - was 1.6.0+, so InvenTree 1.5.1 refused to load it and it stayed inactive with no tables). The end-to-end test now runs on InvenTree 1.5.1 as well as 1.6.0 / 1.6.1, and passes on all three. The first migration now depends only on migrations InvenTree 1.5.1 has; on a server where 0.1.0 never loaded (its tables were never made) nothing else changes.
+
 ## 0.1.0 — 2026-10-23
 
 First release. Takes over the Mouser parts of the OMG Harness Import plugin and the `mouser_shared` (`mouser-lookup`) package.

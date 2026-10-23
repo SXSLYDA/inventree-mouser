@@ -1,6 +1,6 @@
 # inventree-mouser
 
-Mouser Electronics for [InvenTree](https://inventree.org) (1.6+):
+Mouser Electronics for [InvenTree](https://inventree.org) (1.5.1+):
 
 - **Import from Supplier** — search Mouser from InvenTree's own Import Part wizard
   (Parts → Add Parts → Import from Supplier) and create the part with its manufacturer
@@ -151,7 +151,7 @@ Install just for this: `pip install "inventree-mouser @ git+https://github.com/S
 2. `.\build-and-bump.ps1` (patch), `-Bump minor`, or `-Version X.Y.Z` — runs lint and tests,
    bumps `inventree_mouser/version.py`, stamps the changelog, commits and tags `vX.Y.Z`.
 3. Push the commit **and the tag**. CI runs the unit, UI and end-to-end tests (against
-   real InvenTree 1.6.0 and 1.6.1) and publishes the GitHub release.
+   real InvenTree 1.5.1, 1.6.0 and 1.6.1) and publishes the GitHub release.
 4. On the server: `sudo inventree-mouser-update vX.Y.Z` (install the script once — see the
    top of `tools/server-update.sh`), or move the `plugins.txt` pin and `invoke update`.
    Deploying from CI is off unless the `MOUSER_DEPLOY` variable and the SSH secrets are set

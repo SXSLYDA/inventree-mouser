@@ -35,7 +35,7 @@ class MouserIntegrationPlugin(MouserSupplierMixin, AppMixin, ScheduleMixin, Sett
     AUTHOR = 'Tyler Brannigan / OMG Harness'
     WEBSITE = 'https://github.com/SXSLYDA/inventree-mouser'
     LICENSE = 'MIT'
-    MIN_VERSION = '1.6.0'
+    MIN_VERSION = '1.5.1'
 
     # Ticks hourly; the import itself runs once a day at the ORDER_IMPORT_HOUR setting
     SCHEDULED_TASKS = {

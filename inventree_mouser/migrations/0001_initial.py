@@ -8,10 +8,12 @@ class Migration(migrations.Migration):
 
     initial = True
 
+    # The newest migrations InvenTree 1.5.1 has (the oldest version this plugin
+    # supports) - only the tables the foreign keys point at are needed.
     dependencies = [
-        ("company", "0083_company_is_internal"),
-        ("order", "0124_purchaseorder_delivery_address"),
-        ("part", "0154_remove_part_notes"),
+        ("company", "0080_company_tags"),
+        ("order", "0121_add_line_item_discount"),
+        ("part", "0152_alter_partpricing_currency"),
     ]
 
     operations = [
