@@ -1,0 +1,176 @@
+name: CI
+
+# Runs on every push and pull request. On a release tag (vX.Y.Z, made by
+# build-and-bump.ps1) it also checks the tag matches the code, publishes a GitHub
+# release with that version's CHANGELOG.md notes, and - only if you switch it on -
+# deploys that exact tag to your InvenTree server after every test passes.
+#
+# To publish a release for a tag pushed before this job existed (e.g. v1.5.0):
+# Actions -> CI -> Run workflow -> enter the tag in "release_tag".
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Publish a GitHub release for this existing tag (e.g. v1.5.0). Leave empty for a normal run."
+        required: false
+        default: ""
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e . pytest django pyflakes
+      - run: python -m pyflakes inventree_mouser mouser_lookup tests tools
+      - run: pytest -q tests/test_lookup.py
+      - run: python tools/gen_settings_doc.py --check
+      - run: shellcheck -S warning tools/server-update.sh
+      - name: Release tag matches version.py and CHANGELOG.md
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version=$(python -c "import re; print(re.search(r'PLUGIN_VERSION\s*=\s*[\"\'](.+?)[\"\']', open('inventree_mouser/version.py').read()).group(1))")
+          echo "tag ${GITHUB_REF_NAME}, version.py ${version}"
+          test "${GITHUB_REF_NAME}" = "v${version}" || { echo "::error::Tag ${GITHUB_REF_NAME} does not match version.py (${version})"; exit 1; }
+          grep -q "^## ${version} " CHANGELOG.md || { echo "::error::CHANGELOG.md has no '## ${version}' section"; exit 1; }
+
+  ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install --no-save jsdom@24
+      - run: node --test tests/ui.test.mjs
+
+  e2e:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        inventree: ["1.6.0", "1.6.1"]
+    env:
+      INVENTREE_DB_ENGINE: sqlite3
+      INVENTREE_DB_NAME: ${{ github.workspace }}/data/inventree.sqlite3
+      INVENTREE_MEDIA_ROOT: ${{ github.workspace }}/data/media
+      INVENTREE_STATIC_ROOT: ${{ github.workspace }}/data/static
+      INVENTREE_BACKUP_DIR: ${{ github.workspace }}/data/backup
+      INVENTREE_CONFIG_FILE: ${{ github.workspace }}/data/config.yaml
+      INVENTREE_SECRET_KEY: ci-secret-key-ci-secret-key-ci-secret-key
+      INVENTREE_PLUGINS_ENABLED: "True"
+      INVENTREE_PLUGIN_TESTING: "True"
+      INVENTREE_PLUGIN_TESTING_SETUP: "True"
+      INVENTREE_SITE_URL: https://inventree.example.com
+      MOUSER_TESTS: ${{ github.workspace }}/plugin/tests
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: plugin
+      - uses: actions/checkout@v4
+        with:
+          repository: inventree/InvenTree
+          ref: ${{ matrix.inventree }}
+          path: inventree
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install InvenTree and the plugin
+        run: |
+          mkdir -p data
+          pip install -r inventree/src/backend/requirements.txt
+          pip install -e plugin
+      - name: Migrate and activate
+        working-directory: inventree/src/backend/InvenTree
+        run: |
+          python manage.py migrate --noinput
+          python manage.py shell -c "from plugin.models import PluginConfig; [PluginConfig.objects.update_or_create(key=k, defaults={'active': True}) for k in ('mouser',)]"
+          python manage.py migrate
+      - name: End-to-end
+        working-directory: inventree/src/backend/InvenTree
+        run: python manage.py shell -c "exec(open('${{ github.workspace }}/plugin/tests/e2e_inventree.py').read())"
+
+  # A release tag: a GitHub release with that version's CHANGELOG.md section as the notes.
+  # Only after every test passes. Safe to re-run: an existing release is left alone.
+  release:
+    needs: [unit, ui, e2e]
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ inputs.release_tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Release notes from CHANGELOG.md
+        run: |
+          case "$TAG" in v[0-9]*.[0-9]*.[0-9]*) ;; *) echo "::error::'$TAG' is not a vX.Y.Z tag"; exit 1 ;; esac
+          git rev-parse -q --verify "refs/tags/$TAG" >/dev/null || { echo "::error::Tag $TAG does not exist"; exit 1; }
+          version="${TAG#v}"
+          # The tag's own CHANGELOG.md, so a backfilled release gets the notes as released.
+          git show "refs/tags/$TAG:CHANGELOG.md" > "$RUNNER_TEMP/CHANGELOG.md"
+          python tools/release_notes.py "$version" "$RUNNER_TEMP/CHANGELOG.md" > notes.md
+          cat >> notes.md <<NOTES
+
+          ---
+          **Install or update (package installer):** \`sudo inventree-mouser-update ${TAG}\`
+          **Or pin in plugins.txt:** \`inventree-mouser @ git+https://github.com/${GITHUB_REPOSITORY}.git@${TAG}\`, then \`invoke update\` and restart.
+          Read the notes above first: they say when a release adds a migration (which decides whether rolling back is safe).
+          NOTES
+          cat notes.md
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists - leaving it as it is."
+            exit 0
+          fi
+          gh release create "$TAG" --title "inventree-mouser $TAG" --notes-file notes.md --verify-tag --latest=auto
+
+  # Deploys a release tag to your InvenTree server, only after unit, UI and end-to-end
+  # tests pass. Off unless you switch it on (README, "Releasing"):
+  #   Settings -> Secrets and variables -> Actions
+  #     Variables: MOUSER_DEPLOY = true
+  #     Secrets:   INVENTREE_HOST, INVENTREE_SSH_USER, INVENTREE_SSH_KEY (private key),
+  #                INVENTREE_SSH_KNOWN_HOSTS (output of: ssh-keyscan <host>) - recommended
+  #   Settings -> Environments -> inventree-production: add yourself as a required reviewer
+  #   to get an "Approve" button before each deploy.
+  deploy:
+    needs: [unit, ui, e2e]
+    if: startsWith(github.ref, 'refs/tags/v') && vars.MOUSER_DEPLOY == 'true'
+    runs-on: ubuntu-latest
+    environment: inventree-production
+    concurrency:
+      group: inventree-deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: SSH key
+        env:
+          SSH_KEY: ${{ secrets.INVENTREE_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.INVENTREE_SSH_KNOWN_HOSTS }}
+          HOST: ${{ secrets.INVENTREE_HOST }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          if [ -n "$KNOWN_HOSTS" ]; then
+            printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          else
+            echo "::warning::INVENTREE_SSH_KNOWN_HOSTS not set - trusting the server's key on first sight"
+            ssh-keyscan -H "$HOST" > ~/.ssh/known_hosts
+          fi
+      - name: Update the server to ${{ github.ref_name }}
+        env:
+          HOST: ${{ secrets.INVENTREE_HOST }}
+          SSH_USER: ${{ secrets.INVENTREE_SSH_USER }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -o BatchMode=yes "$SSH_USER@$HOST" \
+            "sudo -n bash -s -- '${GITHUB_REF_NAME}'" < tools/server-update.sh

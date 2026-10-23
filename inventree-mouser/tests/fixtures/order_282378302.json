@@ -1,0 +1,134 @@
+{
+  "SalesOrderId": "282378302",
+  "WebOrderId": 40699983,
+  "OrderStatus": 3,
+  "OrderStatusName": "Complete",
+  "OrderDate": "2026-10-08T14:21:00",
+  "CurrencyCode": "AUD",
+  "BuyerName": "Tyler",
+  "PaymentDetail": {
+    "PoNumber": "40699983",
+    "PaymentMethodName": "Credit Card"
+  },
+  "DeliveryDetail": {
+    "ShippingMethodName": "UPS Express",
+    "TrackingDetails": [
+      {
+        "Number": "1Z999AA10123456784",
+        "Link": "https://www.ups.com/track?tracknum=1Z999AA10123456784"
+      }
+    ]
+  },
+  "SummaryDetail": {
+    "MerchandiseTotal": "$872.86",
+    "OrderTotal": "$960.15",
+    "AdditionalFeesTotal": "$0.00"
+  },
+  "OrderLines": [
+    {
+      "Quantity": 10,
+      "UnitPrice": 0.621,
+      "ExtPrice": 6.21,
+      "FormattedUnitPrice": "$0.621",
+      "FormattedExtendedPrice": "$6.21",
+      "UseRfcNumber": false,
+      "ProductInfo": {
+        "MouserPartNumber": "650-RKEF135",
+        "CustomerPartNumber": "",
+        "ManufacturerName": "Bourns",
+        "ManufacturerPartNumber": "RKEF135",
+        "PartDescription": "Resettable Fuses - PPTC Resettable Fuses - PPTC 60V 40A 2.30W Radial-leaded Device"
+      },
+      "Activities": [
+        {
+          "InvoiceNumber": 92944398,
+          "Date": "2026-10-09T00:00:00"
+        }
+      ]
+    },
+    {
+      "Quantity": 10,
+      "UnitPrice": 0.715,
+      "ExtPrice": 7.15,
+      "FormattedUnitPrice": "$0.715",
+      "FormattedExtendedPrice": "$7.15",
+      "UseRfcNumber": false,
+      "ProductInfo": {
+        "MouserPartNumber": "650-RKEF110",
+        "CustomerPartNumber": "",
+        "ManufacturerName": "Bourns",
+        "ManufacturerPartNumber": "RKEF110",
+        "PartDescription": "Resettable Fuses - PPTC Resettable Fuses - PPTC 60V 40A 2.20W Radial-leaded Device"
+      },
+      "Activities": [
+        {
+          "InvoiceNumber": 92944398,
+          "Date": "2026-10-09T00:00:00"
+        }
+      ]
+    },
+    {
+      "Quantity": 75,
+      "UnitPrice": 4.94,
+      "ExtPrice": 370.5,
+      "FormattedUnitPrice": "$4.94",
+      "FormattedExtendedPrice": "$370.5",
+      "UseRfcNumber": false,
+      "ProductInfo": {
+        "MouserPartNumber": "571-DT04-12PA-E005",
+        "CustomerPartNumber": "",
+        "ManufacturerName": "TE Connectivity / DEUTSCH",
+        "ManufacturerPartNumber": "DT04-12PA-E005",
+        "PartDescription": "Automotive Connectors Automotive Connectors DT RECP ASM"
+      },
+      "Activities": [
+        {
+          "InvoiceNumber": 92944398,
+          "Date": "2026-10-09T00:00:00"
+        }
+      ]
+    },
+    {
+      "Quantity": 100,
+      "UnitPrice": 1.61,
+      "ExtPrice": 161.0,
+      "FormattedUnitPrice": "$1.61",
+      "FormattedExtendedPrice": "$161.0",
+      "UseRfcNumber": false,
+      "ProductInfo": {
+        "MouserPartNumber": "571-DT04-2P-E005",
+        "CustomerPartNumber": "",
+        "ManufacturerName": "TE Connectivity / DEUTSCH",
+        "ManufacturerPartNumber": "DT04-2P-E005",
+        "PartDescription": "Automotive Connectors Automotive Connectors DT 2 WAY RECP SZ 16"
+      },
+      "Activities": [
+        {
+          "InvoiceNumber": 92944398,
+          "Date": "2026-10-09T00:00:00"
+        }
+      ]
+    },
+    {
+      "Quantity": 100,
+      "UnitPrice": 3.28,
+      "ExtPrice": 328.0,
+      "FormattedUnitPrice": "$3.28",
+      "FormattedExtendedPrice": "$328.0",
+      "UseRfcNumber": false,
+      "ProductInfo": {
+        "MouserPartNumber": "571-DT04-6P-E005",
+        "CustomerPartNumber": "",
+        "ManufacturerName": "TE Connectivity / DEUTSCH",
+        "ManufacturerPartNumber": "DT04-6P-E005",
+        "PartDescription": "Automotive Connectors Automotive Connectors 6P DT RECP ASM, BLACK, END CAP"
+      },
+      "Activities": [
+        {
+          "InvoiceNumber": 92944398,
+          "Date": "2026-10-09T00:00:00"
+        }
+      ]
+    }
+  ]
+}

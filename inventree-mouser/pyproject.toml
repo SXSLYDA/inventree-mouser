@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "inventree-mouser"
+dynamic = ["version"]
+description = "Mouser for InvenTree: part import, daily Mouser order import into purchase orders, and purchase orders sent to a Mouser cart - plus mouser_lookup, a framework-free Mouser API client"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Tyler Brannigan / OMG Harness" }]
+requires-python = ">=3.10"
+dependencies = ["requests>=2.28"]
+keywords = ["inventree", "inventree-plugin", "mouser", "purchase-orders", "electronics", "supplier"]
+classifiers = [
+    "Framework :: Django",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Office/Business",
+]
+
+[project.urls]
+Homepage = "https://github.com/SXSLYDA/inventree-mouser"
+Issues = "https://github.com/SXSLYDA/inventree-mouser/issues"
+
+[project.entry-points."inventree_plugins"]
+MouserIntegration = "inventree_mouser.core:MouserIntegrationPlugin"
+
+[tool.setuptools.packages.find]
+include = ["inventree_mouser*", "mouser_lookup*"]
+
+[tool.setuptools.dynamic]
+version = { attr = "inventree_mouser.version.PLUGIN_VERSION" }
+
+[tool.setuptools.package-data]
+inventree_mouser = ["static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
