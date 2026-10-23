@@ -12,7 +12,7 @@
 #   1. Checks: git is available, the new tag doesn't already exist here or on GitHub.
 #   2. Build: regenerates docs/SETTINGS.md from the code.
 #   3. Tests: lint and the unit tests, plus a syntax check of the UI file if Node is
-#      installed. Needs your venv: pip install -e . pytest pyflakes
+#      installed. Needs your venv: pip install -e . pytest pyflakes django
 #   4. Bumps inventree_mouser/version.py (the only place the version lives) and turns
 #      "## Unreleased" in CHANGELOG.md into "## X.Y.Z - date".
 #   5. Commits ALL current changes as "Release vX.Y.Z" and tags vX.Y.Z.
@@ -144,7 +144,7 @@ if ($SkipTests) {
 } else {
     & $python -c "import pytest, pyflakes, django, requests" 2>$null
     if ($LASTEXITCODE -ne 0) {
-        Fail "the test tools aren't installed in this venv. Run once:  pip install -e . pytest pyflakes"
+        Fail "the test tools aren't installed in this venv. Run once:  pip install -e . pytest pyflakes django"
     }
     & $python -m pyflakes inventree_mouser tests tools
     if ($LASTEXITCODE -ne 0) { Fail "lint found problems (above)." }

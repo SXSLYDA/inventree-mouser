@@ -4,6 +4,8 @@ Add notes for the next release under **Unreleased** as you work. `build-and-bump
 
 ## Unreleased
 
+## 0.1.0 — 2026-10-23
+
 First release. Takes over the Mouser parts of the OMG Harness Import plugin and the `mouser_shared` (`mouser-lookup`) package.
 
 **Adds a migration** (`inventree_mouser.0001_initial`: Mouser orders, their lines, and order checks).
@@ -21,3 +23,4 @@ First release. Takes over the Mouser parts of the OMG Harness Import plugin and 
 - Search results carry Mouser's product category (`category`), so other plugins can tell a connector from a fuse.
 - Tracking links on the dashboard are only made links when they're web addresses.
 - Tests: unit (`tests/test_lookup.py`), UI in jsdom (`tests/ui.test.mjs`) and end-to-end against real InvenTree with a fake Mouser account (`tests/e2e_inventree.py`), all in CI.
+
