@@ -43,7 +43,7 @@ background worker running for the daily check.
    - **Search API key** → `Search API key` (part search, creating parts)
    - **Order API key** → `Order API key` (reading your orders, filling carts)
 2. **Supplier** — pick the Company that is Mouser in your InvenTree.
-3. **Order import** — set `Import orders placed from` (YYYY-MM-DD). Orders before it are
+3. **Order import** — set `Import orders placed from` (DD-MM-YYYY, e.g. 24-10-2026). Orders before it are
    never imported, so purchase orders you already typed in by hand aren't doubled up.
    Then switch on `Import Mouser orders daily`.
 4. Optional: `Mouser website` (e.g. `au.mouser.com`), `Country code` / `Currency code`

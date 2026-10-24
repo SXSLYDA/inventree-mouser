@@ -198,3 +198,12 @@ test('tracking: only web links become links', async () => {
   assert.ok(!el.querySelector('a[href^="javascript"]'), 'no javascript: link');
   assert.ok(el.querySelector('a[href="https://ups.example/1Z999"]'), 'web link kept');
 });
+
+test('dates are shown DD-MM-YYYY', async () => {
+  const el = document.createElement('div');
+  const ctx = makeCtx({ 'GET status/': STATUS, 'GET orders/': { orders: [HELD] } });
+  ui.renderMouserDashboard(el, ctx);
+  await settle();
+  assert.match(el.textContent, /orders from 01-10-2026/);
+  assert.match(el.textContent, /08-10-2026/);
+});

@@ -26,7 +26,7 @@ All settings are on the plugin's settings page in InvenTree (Admin Center → Pl
 | Setting | Key | Default | What it does |
 |---|---|---|---|
 | Import Mouser orders daily | `ORDER_IMPORT` | no | Check Mouser once a day for new orders and make purchase orders from them. |
-| Import orders placed from | `ORDER_IMPORT_START` | (blank) | YYYY-MM-DD. Orders placed before this date are never imported (so orders already entered by hand aren't doubled up). Required for the daily check. |
+| Import orders placed from | `ORDER_IMPORT_START` | (blank) | DD-MM-YYYY, e.g. 24-10-2026. Orders placed before this date are never imported (so orders already entered by hand aren't doubled up). Required for the daily check. |
 | Check at hour | `ORDER_IMPORT_HOUR` | `6` | Hour of the day (0-23, server time) the daily check runs at or after. |
 | Look back (days) | `ORDER_LOOKBACK_DAYS` | `14` | Each check asks Mouser for orders placed in this many days (never before the start date) |
 | New purchase orders are | `PO_STATUS` | Placed | Placed: ready to receive (and sent on to Xero by the Xero plugin, if it exports placed orders). Pending: left for a person to place. Options: Placed; Pending. |

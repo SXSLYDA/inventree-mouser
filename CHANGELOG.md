@@ -4,6 +4,10 @@ Add notes for the next release under **Unreleased** as you work. `build-and-bump
 
 ## Unreleased
 
+## 0.1.2 — 2026-10-24
+
+- **Dates are DD-MM-YYYY.** "Import orders placed from" is now entered as DD-MM-YYYY (e.g. 24-10-2026) and anything else is refused when saved; the Mouser Orders dashboard and the check summaries show dates the same way (times as HH:MM). A start date already saved as YYYY-MM-DD no longer counts - the daily check says to set it - so enter it again as DD-MM-YYYY after updating.
+
 ## 0.1.1 — 2026-10-24
 
 - **Works on InvenTree 1.5** (1.5.1 and newer - was 1.6.0+, so InvenTree 1.5.1 refused to load it and it stayed inactive with no tables). The end-to-end test now runs on InvenTree 1.5.1 as well as 1.6.0 / 1.6.1, and passes on all three. The first migration now depends only on migrations InvenTree 1.5.1 has; on a server where 0.1.0 never loaded (its tables were never made) nothing else changes.

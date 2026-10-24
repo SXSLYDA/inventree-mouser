@@ -8,6 +8,7 @@ from plugin import InvenTreePlugin
 from plugin.mixins import AppMixin, ScheduleMixin, SettingsMixin, UrlsMixin, UserInterfaceMixin
 
 from . import PLUGIN_VERSION
+from .dates import validate_start_date
 from .supplier import MouserSupplierMixin
 
 logger = logging.getLogger('inventree')
@@ -97,8 +98,9 @@ class MouserIntegrationPlugin(MouserSupplierMixin, AppMixin, ScheduleMixin, Sett
         },
         'ORDER_IMPORT_START': {
             'name': 'Import orders placed from',
-            'description': ('YYYY-MM-DD. Orders placed before this date are never imported (so orders already '
-                            'entered by hand aren\'t doubled up). Required for the daily check'),
+            'description': ('DD-MM-YYYY, e.g. 24-10-2026. Orders placed before this date are never imported (so '
+                            'orders already entered by hand aren\'t doubled up). Required for the daily check'),
+            'validator': validate_start_date,
             'default': '',
         },
         'ORDER_IMPORT_HOUR': {

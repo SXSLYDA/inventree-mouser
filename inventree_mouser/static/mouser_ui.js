@@ -60,16 +60,20 @@ function webUrl(v) {
   return /^https?:\/\//i.test(url) ? url : '';
 }
 
+// Dates are shown DD-MM-YYYY (times HH:MM, local) - the same as the plugin's settings
+const pad = (n) => String(n).padStart(2, '0');
+const ddmmyyyy = (d) => `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()}`;
+
 function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso);
-  return isNaN(d) ? esc(iso) : d.toLocaleString();
+  return isNaN(d) ? esc(iso) : `${ddmmyyyy(d)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function fmtDay(iso) {
   if (!iso) return '—';
   const d = new Date(iso + 'T00:00:00');
-  return isNaN(d) ? esc(iso) : d.toLocaleDateString();
+  return isNaN(d) ? esc(iso) : ddmmyyyy(d);
 }
 
 function money(v, cur) {

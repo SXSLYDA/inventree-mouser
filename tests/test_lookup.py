@@ -206,3 +206,24 @@ def test_search_result_has_mouser_category():
         {'ManufacturerPartNumber': 'DT04-2P-E005', 'Category': 'Automotive Connectors'},
         {'ManufacturerPartNumber': 'RKEF135'}]}})
     assert [p['category'] for p in parts] == ['Automotive Connectors', '']
+
+
+# ---------------------------------------------------------------------- the start-date setting (DD-MM-YYYY)
+
+def test_start_date_is_dd_mm_yyyy():
+    from datetime import date
+    from inventree_mouser.dates import parse_start_date
+    assert parse_start_date('24-10-2026') == date(2026, 10, 24)
+    assert parse_start_date(' 01-10-2026 ') == date(2026, 10, 1)
+    for bad in ('2026-10-24', '31-02-2026', '24/10/2026', 'tomorrow', '', None):
+        assert parse_start_date(bad) is None, bad
+
+
+def test_start_date_validator():
+    pytest.importorskip('django')
+    from django.core.exceptions import ValidationError
+    from inventree_mouser.dates import validate_start_date
+    validate_start_date('24-10-2026')
+    validate_start_date('')
+    with pytest.raises(ValidationError, match='DD-MM-YYYY'):
+        validate_start_date('2026-10-24')

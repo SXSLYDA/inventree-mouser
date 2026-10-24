@@ -69,7 +69,7 @@ connectors, _ = PartCategory.objects.get_or_create(name='Connectors', parent=Non
 plugin.set_setting('SUPPLIER', mouser.pk)
 plugin.set_setting('ORDER_API_KEY', 'fake-order-key')
 plugin.set_setting('SEARCH_API_KEY', 'fake-search-key')
-plugin.set_setting('ORDER_IMPORT_START', '2026-10-01')
+plugin.set_setting('ORDER_IMPORT_START', '01-10-2026')
 plugin.set_setting('ORDER_IMPORT', True)
 # the fixture orders are from October 2026 - look back far enough whatever day the test runs
 plugin.set_setting('ORDER_LOOKBACK_DAYS', 365)
@@ -426,7 +426,15 @@ try:
     plugin.set_setting('ORDER_IMPORT_HOUR', 6)
     plugin.set_setting('ORDER_IMPORT_START', '')
     check('no start date = does nothing', run_scheduled(plugin) is None)
-    plugin.set_setting('ORDER_IMPORT_START', '2026-10-01')
+    plugin.set_setting('ORDER_IMPORT_START', '01-10-2026')
+    from django.core.exceptions import ValidationError
+    try:
+        plugin.set_setting('ORDER_IMPORT_START', '2026-10-01')
+        refused = False
+    except ValidationError:
+        refused = True
+    check('start date must be DD-MM-YYYY', refused and str(plugin.get_setting('ORDER_IMPORT_START')) == '01-10-2026',
+          plugin.get_setting('ORDER_IMPORT_START'))
     check('ImportRun older than a day does not block', ImportRun.objects.filter(
         started__lt=timezone.now() - timedelta(days=1)).count() == 0)
 

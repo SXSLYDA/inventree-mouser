@@ -43,6 +43,7 @@ from django.utils import timezone
 from mouser_lookup import MouserError, orders
 
 from . import hooks
+from .dates import parse_start_date
 from .matching import match_line
 from .supplier import existing_purchaseable_part
 from .models import ImportRun, MouserOrder, MouserOrderLine
@@ -65,14 +66,12 @@ def jsonable(value):
 
 
 def parse_date(text):
-    """YYYY-MM-DD (also DD/MM/YYYY) from a setting, else None."""
+    """A date from Mouser's normalized order data (YYYY-MM-DD, see mouser_lookup.orders), else None."""
     text = (text or '').strip()
-    for fmt in ('%Y-%m-%d', '%d/%m/%Y'):
-        try:
-            return datetime.strptime(text, fmt).date()
-        except ValueError:
-            continue
-    return None
+    try:
+        return datetime.strptime(text, '%Y-%m-%d').date()
+    except ValueError:
+        return None
 
 
 def is_cancelled(status):
@@ -106,7 +105,7 @@ class OrderImporter:
 
     @property
     def start_date(self):
-        return parse_date(self.setting('ORDER_IMPORT_START', ''))
+        return parse_start_date(self.setting('ORDER_IMPORT_START', ''))
 
     def new_parts_category(self):
         from part.models import PartCategory
@@ -183,11 +182,11 @@ class OrderImporter:
     @staticmethod
     def summary(counts, total, since):
         if not total:
-            return f'No Mouser orders since {since:%d %b %Y}.'
+            return f'No Mouser orders since {since:%d-%m-%Y}.'
         labels = {'imported': 'imported', 'linked': 'linked to existing POs', 'held': 'need review',
                   'ignored': 'ignored', 'failed': 'failed', 'done': 'already done', 'before_start': 'before the start date'}
         parts = [f'{n} {labels.get(k, k)}' for k, n in counts.items() if n]
-        return f'{total} Mouser order(s) since {since:%d %b %Y}: ' + ', '.join(parts) + '.'
+        return f'{total} Mouser order(s) since {since:%d-%m-%Y}: ' + ', '.join(parts) + '.'
 
     def import_summary(self, row, source):
         """One row of Mouser's order list -> state word for the run summary."""
