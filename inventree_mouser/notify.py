@@ -15,14 +15,23 @@ Who: the "Notify" setting's users / groups (comma separated), else every
 active user who may add purchase orders. Through InvenTree's own
 trigger_notification, so its delivery methods and "notified recently" rule
 apply. A notification problem is logged and never stops an import.
+
+Each notification is ABOUT this plugin's own record (the MouserOrder, the
+ImportRun) or the purchase order: InvenTree links a notification to its
+object's page when it knows the model, which for a notification about no
+object was the UI-notification plugin's own settings page ("plugin 38 - not
+configured"). It doesn't know this plugin's models, so it uses the link given
+here: the Purchasing page's Mouser Orders panel. Links are paths inside
+InvenTree's web app (no /web prefix - the app adds it).
 """
 
 import logging
 
 logger = logging.getLogger('inventree')
 
-DASHBOARD_LINK = '/web/home'
-PO_LINK = '/web/purchasing/purchase-order/{pk}'
+ORDERS_LINK = '/purchasing/index/mouser-orders'     # Purchasing page, Mouser Orders panel
+PO_LINK = '/purchasing/purchase-order/{pk}'
+CHECK_FAILED_KEY = 'mouser-check-failed'            # one "check failed" a day, whichever run it was
 
 
 def recipients(plugin):
@@ -44,7 +53,11 @@ def recipients(plugin):
     return [u for u in User.objects.filter(is_active=True) if u.has_perm('order.add_purchaseorder')]
 
 
-def _send(plugin, category, uid, name, message, link, obj=None, once_a_day=True):
+def _send(plugin, category, obj, name, message, link, obj_ref='pk', once_a_day=True):
+    """
+    One notification about obj. "Once a day" is InvenTree's check for the same
+    category and obj_ref value (the order's pk, or CHECK_FAILED_KEY).
+    """
     from InvenTree.helpers import str2bool
 
     if not str2bool(plugin.get_setting('NOTIFY')):
@@ -53,8 +66,7 @@ def _send(plugin, category, uid, name, message, link, obj=None, once_a_day=True)
         from common.notifications import trigger_notification
 
         trigger_notification(
-            obj, f'mouser.{category}',
-            notification_uid=None if obj is not None else uid,
+            obj, f'mouser.{category}', obj_ref=obj_ref,
             targets=recipients(plugin),
             check_recent=once_a_day,
             context={'name': name, 'message': message, 'link': link},
@@ -64,19 +76,19 @@ def _send(plugin, category, uid, name, message, link, obj=None, once_a_day=True)
 
 
 def check_failed(plugin, run):
-    _send(plugin, 'check_failed', 'mouser-check-failed', 'Mouser order check failed',
-          run.message or 'See the Mouser Orders dashboard item.', DASHBOARD_LINK)
+    run.notify_key = CHECK_FAILED_KEY
+    _send(plugin, 'check_failed', run, 'Mouser order check failed',
+          run.message or 'See Purchasing - Mouser Orders.', ORDERS_LINK, obj_ref='notify_key')
 
 
 def order_held(plugin, order):
-    _send(plugin, 'order_held', f'mouser-order-held-{order.pk}', f'Mouser order {order.sales_order} needs you',
-          order.message or 'Choose the part for each flagged line on the Mouser Orders dashboard item.',
-          DASHBOARD_LINK)
+    _send(plugin, 'order_held', order, f'Mouser order {order.sales_order} needs you',
+          order.message or 'Choose the part for each flagged line on Purchasing - Mouser Orders.', ORDERS_LINK)
 
 
 def order_failed(plugin, order):
-    _send(plugin, 'order_failed', f'mouser-order-failed-{order.pk}',
-          f'Mouser order {order.sales_order} could not be imported', order.message, DASHBOARD_LINK)
+    _send(plugin, 'order_failed', order, f'Mouser order {order.sales_order} could not be imported',
+          order.message, ORDERS_LINK)
 
 
 def order_imported(plugin, order):
@@ -85,5 +97,5 @@ def order_imported(plugin, order):
     po = order.purchase_order
     if po is None or not str2bool(plugin.get_setting('NOTIFY_IMPORTED')):
         return
-    _send(plugin, 'order_imported', None, f'Mouser order {order.sales_order} -> {po.reference}',
-          order.message, PO_LINK.format(pk=po.pk), obj=po, once_a_day=False)
+    _send(plugin, 'order_imported', po, f'Mouser order {order.sales_order} -> {po.reference}',
+          order.message, PO_LINK.format(pk=po.pk), once_a_day=False)

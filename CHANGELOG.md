@@ -4,6 +4,10 @@ Add notes for the next release under **Unreleased** as you work. `build-and-bump
 
 ## Unreleased
 
+## 0.1.4 — 2026-10-26
+
+- **Notification links fixed.** A notification about no particular record was attached by InvenTree to its UI-notification plugin, so clicking it opened that plugin's settings ("plugin 38 - not configured"). Notifications are now about the Mouser order / the check / the purchase order: "needs you", "could not be imported" and "check failed" open **Purchasing → Mouser Orders**, an imported order opens its purchase order. Who sees them still follows purchase-order permissions. Notifications already in the list keep their old link - mark them read.
+
 ## 0.1.3 — 2026-10-25
 
 - **Mouser Orders panel on the Purchasing page** (Purchasing → Mouser Orders): every imported Mouser order with its status, purchase order and total, filter buttons (All / Needs you / Purchase orders / Ignored), and the same Check Mouser now, Import order and per-line choices as the dashboard item. Only shown to users who can see purchase orders.

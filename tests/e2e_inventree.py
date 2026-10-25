@@ -149,6 +149,20 @@ try:
           list(held_notes.values_list('name', flat=True)))
     check('...only once a day, however often it is checked', held_notes.count() == 1)
 
+    def api_note(category):
+        # what InvenTree's notification drawer gets: it links to target.link unless it
+        # knows target.model_type (then that object's page - this used to be "plugin 38")
+        api = Client()
+        api.login(username='mouser-admin', password='pw')
+        r = api.get('/api/notifications/', {'limit': 100})
+        rows = r.json()['results'] if isinstance(r.json(), dict) else r.json()
+        return next((n for n in rows if n.get('category') == category), None)
+
+    note = api_note('mouser.order_held')
+    check('held notification is about the Mouser order and links to Purchasing - Mouser Orders',
+          note and note['target']['model_type'] == 'mouserorder'
+          and note['target']['link'] == '/purchasing/index/mouser-orders', note)
+
     # ------------------------------------------------------------------ the person decides via the API
     section('Review on the dashboard item (API)')
     client = Client()
@@ -206,7 +220,7 @@ try:
 
     imported_notes = NotificationMessage.objects.filter(user=admin, category='mouser.order_imported')
     check('imported order -> notification linking the PO', imported_notes.count() == 1
-          and imported_notes.first().link == f'/web/purchasing/purchase-order/{po.pk}',
+          and imported_notes.first().link == f'/purchasing/purchase-order/{po.pk}',
           list(imported_notes.values_list('name', 'link')))
     plugin.set_setting('ORDER_API_KEY', '')
     bad = importer.check(source='manual')
@@ -215,6 +229,13 @@ try:
           and 'Order API key' in failed_notes.first().message, list(failed_notes.values_list('message', flat=True)))
     importer.check(source='manual')
     check('...once a day, not every retry', failed_notes.count() == 1)
+    note = api_note('mouser.check_failed')
+    check('failed-check notification links to Purchasing - Mouser Orders',
+          note and note['target']['model_type'] == 'importrun'
+          and note['target']['link'] == '/purchasing/index/mouser-orders', note)
+    note = api_note('mouser.order_imported')
+    check('imported notification is about the purchase order', note and note['target']['model_type'] == 'purchaseorder'
+          and note['target']['model_id'] == po.pk, note)
     plugin.set_setting('ORDER_API_KEY', 'fake-order-key')
 
     section('Run again: nothing doubles up')

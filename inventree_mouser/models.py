@@ -12,6 +12,16 @@ These tables have real migrations (migrations/), applied by
 from django.db import models
 
 
+def purchase_order_permission(user, permission):
+    """
+    InvenTree asks a plugin model this when it has no role for it (e.g. who may
+    see a notification about it): the same as for purchase orders - "view" needs
+    view purchase orders, anything else change purchase orders.
+    """
+    action = 'view' if permission == 'view' else 'change'
+    return bool(user and user.is_active and user.has_perm(f'order.{action}_purchaseorder'))
+
+
 class MouserOrder(models.Model):
     """One Mouser order and where it is in the import."""
 
@@ -52,6 +62,10 @@ class MouserOrder(models.Model):
 
     def __str__(self):
         return f'Mouser {self.sales_order} ({self.get_state_display()})'
+
+    @classmethod
+    def check_user_permission(cls, user, permission):
+        return purchase_order_permission(user, permission)
 
 
 class MouserOrderLine(models.Model):
@@ -131,4 +145,8 @@ class ImportRun(models.Model):
         verbose_name = 'Mouser order check'
 
     def __str__(self):
-        return f'Mouser order check {self.started:%Y-%m-%d %H:%M} ({self.source})'
+        return f'Mouser order check {self.started:%d-%m-%Y %H:%M} ({self.source})'
+
+    @classmethod
+    def check_user_permission(cls, user, permission):
+        return purchase_order_permission(user, permission)
