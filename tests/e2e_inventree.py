@@ -142,6 +142,13 @@ try:
     check('one MouserOrder', MouserOrder.objects.count() == 1)
     check('still held', MouserOrder.objects.get(pk=order.pk).state == MouserOrder.STATE_HELD)
 
+    section('Notifications (the bell)')
+    from common.models import NotificationMessage
+    held_notes = NotificationMessage.objects.filter(user=admin, category='mouser.order_held')
+    check('held order -> notification', held_notes.count() == 1 and '282378302' in held_notes.first().name,
+          list(held_notes.values_list('name', flat=True)))
+    check('...only once a day, however often it is checked', held_notes.count() == 1)
+
     # ------------------------------------------------------------------ the person decides via the API
     section('Review on the dashboard item (API)')
     client = Client()
@@ -196,6 +203,19 @@ try:
                                  ('RKEF135', 'order', 'RKEF135')], hook_calls)
     order.refresh_from_db()
     check("hook notes on the order's message", 'fake-provider: hook saw RKEF135' in order.message, order.message)
+
+    imported_notes = NotificationMessage.objects.filter(user=admin, category='mouser.order_imported')
+    check('imported order -> notification linking the PO', imported_notes.count() == 1
+          and imported_notes.first().link == f'/web/purchasing/purchase-order/{po.pk}',
+          list(imported_notes.values_list('name', 'link')))
+    plugin.set_setting('ORDER_API_KEY', '')
+    bad = importer.check(source='manual')
+    failed_notes = NotificationMessage.objects.filter(user=admin, category='mouser.check_failed')
+    check('failed check -> notification with the reason', not bad.ok and failed_notes.count() == 1
+          and 'Order API key' in failed_notes.first().message, list(failed_notes.values_list('message', flat=True)))
+    importer.check(source='manual')
+    check('...once a day, not every retry', failed_notes.count() == 1)
+    plugin.set_setting('ORDER_API_KEY', 'fake-order-key')
 
     section('Run again: nothing doubles up')
     run = importer.check(source='manual')
@@ -476,6 +496,15 @@ try:
     po_other = PurchaseOrder.objects.create(reference=PurchaseOrder.generate_reference(), supplier=other)
     check('no panel on another supplier\'s PO',
           plugin.get_ui_panels(None, {'target_model': 'purchaseorder', 'target_id': po_other.pk}) == [])
+    from types import SimpleNamespace
+    purchasing = plugin.get_ui_panels(SimpleNamespace(user=admin), {'target_model': 'purchasing'})
+    check('Mouser Orders panel on the Purchasing page',
+          purchasing and purchasing[0]['source'].endswith('mouser_ui.js:renderMouserPurchasing'), purchasing)
+    check('...not for someone who can\'t see purchase orders',
+          plugin.get_ui_panels(SimpleNamespace(user=viewer), {'target_model': 'purchasing'}) == [])
+    r = client.get('/plugin/mouser/api/orders/?state=imported,linked&limit=200')
+    check('orders filtered by state', r.status_code == 200
+          and {o['state'] for o in r.json()['orders']} <= {'imported', 'linked'}, r.content[:200])
 finally:
     fake.uninstall()
 

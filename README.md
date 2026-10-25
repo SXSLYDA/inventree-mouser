@@ -46,14 +46,19 @@ background worker running for the daily check.
 3. **Order import** — set `Import orders placed from` (DD-MM-YYYY, e.g. 24-10-2026). Orders before it are
    never imported, so purchase orders you already typed in by hand aren't doubled up.
    Then switch on `Import Mouser orders daily`.
-4. Optional: `Mouser website` (e.g. `au.mouser.com`), `Country code` / `Currency code`
+4. Notifications: problems with the order import (a check failing, an order waiting for you)
+   show in InvenTree's notifications - set `Notify` to the users or groups who should get
+   them (blank = everyone who may add purchase orders).
+5. Optional: `Mouser website` (e.g. `au.mouser.com`), `Country code` / `Currency code`
    for cart pricing, `New parts category`, `Receive into`, `Responsible`.
 
 Every setting is listed in [docs/SETTINGS.md](docs/SETTINGS.md).
 
 The **Mouser Orders** dashboard item shows what was imported, what's waiting for you, and
 has *Check Mouser now* and *Import order* (by sales or web order number — ignores the
-start date, handy for trying it on one order).
+start date, handy for trying it on one order). The same view, bigger - every order, with
+filters (All / Needs you / Purchase orders / Ignored) and totals - is the **Mouser Orders**
+panel on InvenTree's Purchasing page.
 
 ## How an order is imported
 

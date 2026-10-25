@@ -42,7 +42,7 @@ from django.utils import timezone
 
 from mouser_lookup import MouserError, orders
 
-from . import hooks
+from . import hooks, notify
 from .dates import parse_start_date
 from .matching import match_line
 from .supplier import existing_purchaseable_part
@@ -177,6 +177,8 @@ class OrderImporter:
         run.counts = dict(counts)
         run.finished = timezone.now()
         run.save()
+        if not run.ok:
+            notify.check_failed(self.plugin, run)
         return run
 
     @staticmethod
@@ -295,7 +297,24 @@ class OrderImporter:
                                             status__in=open_values).first()
 
     def process(self, order, user=None):
-        """Apply the hybrid rule to one stored order: hold it, or make / update its purchase order."""
+        """
+        Apply the hybrid rule to one stored order (_process), then tell people
+        (notify.py): it waits for them, it failed, or it became a purchase order.
+        """
+        if order.purchase_order_id or order.state in (MouserOrder.STATE_IMPORTED, MouserOrder.STATE_LINKED,
+                                                       MouserOrder.STATE_IGNORED):
+            return order
+        order = self._process(order, user)
+        if order.state == MouserOrder.STATE_HELD:
+            notify.order_held(self.plugin, order)
+        elif order.state == MouserOrder.STATE_FAILED:
+            notify.order_failed(self.plugin, order)
+        elif order.purchase_order_id and order.message.startswith(('Created ', 'Updated ')):
+            notify.order_imported(self.plugin, order)
+        return order
+
+    def _process(self, order, user=None):
+        """The hybrid rule for one stored order: hold it, or make / update its purchase order."""
         if order.purchase_order_id or order.state in (MouserOrder.STATE_IMPORTED, MouserOrder.STATE_LINKED,
                                                        MouserOrder.STATE_IGNORED):
             return order

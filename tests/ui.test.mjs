@@ -207,3 +207,22 @@ test('dates are shown DD-MM-YYYY', async () => {
   assert.match(el.textContent, /orders from 01-10-2026/);
   assert.match(el.textContent, /08-10-2026/);
 });
+
+test('Purchasing page panel: filters and totals', async () => {
+  const el = document.createElement('div');
+  const seen = [];
+  const ctx = makeCtx({
+    'GET status/': STATUS,
+    'GET orders/?limit=200': () => { seen.push('all'); return { orders: [{ ...HELD, total: '960.15' }, { ...IMPORTED, pk: 2, sales_order: '300000002' }] }; },
+    'GET orders/?limit=200&state=imported%2Clinked': () => { seen.push('pos'); return { orders: [{ ...IMPORTED, pk: 2, sales_order: '300000002' }] }; },
+  });
+  ui.renderMouserPurchasing(el, ctx);
+  await settle();
+  assert.match(el.textContent, /960\.15 AUD/);
+  assert.match(el.textContent, /282378302/);
+  click(el.querySelector('button[data-filter="imported,linked"]'));
+  await settle();
+  assert.deepEqual(seen, ['all', 'pos']);
+  assert.doesNotMatch(el.querySelector('tbody').textContent, /282378302/);
+  assert.match(el.textContent, /300000002/);
+});

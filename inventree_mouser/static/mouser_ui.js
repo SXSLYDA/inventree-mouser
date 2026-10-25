@@ -313,18 +313,26 @@ function statusRow(s) {
     ${s.failed ? `<span class="badge err">${s.failed} failed</span>` : ''}</div>`;
 }
 
-function dashboard(target, ctx) {
+const FILTERS = [['', 'All'], ['held,failed', 'Needs you'], ['imported,linked', 'Purchase orders'], ['ignored', 'Ignored']];
+
+// The dashboard item, and (full: true) the Purchasing page's Mouser panel: more
+// orders, filter buttons and the order total.
+function dashboard(target, ctx, opts = {}) {
+  const full = !!opts.full;
   const root = shell(target);
   let status = null;
   let orders = [];
   let openPk = null;
   let message = null;
+  let filter = '';
+
+  const ordersPath = () => (full ? `orders/?limit=200${filter ? `&state=${encodeURIComponent(filter)}` : ''}` : 'orders/');
 
   const load = async () => {
     try {
       [status, orders] = await Promise.all([
         call(ctx, 'GET', 'status/'),
-        call(ctx, 'GET', 'orders/').then((r) => r.orders || []),
+        call(ctx, 'GET', ordersPath()).then((r) => r.orders || []),
       ]);
     } catch (e) {
       message = { ok: false, text: e.message };
@@ -337,6 +345,7 @@ function dashboard(target, ctx) {
       return;
     }
     const last = status.last_run;
+    const cols = full ? 5 : 4;
     root.innerHTML = `
       ${statusRow(status)}
       ${last ? `<div class="small muted">Last check ${fmtDate(last.started)} (${esc(last.source)}): ${esc(last.message || (last.finished ? '' : 'running…'))}</div>` : ''}
@@ -347,16 +356,25 @@ function dashboard(target, ctx) {
         <button data-act="import">Import order</button>
         <button data-act="refresh">Refresh</button>
       </div>` : ''}
-      <div class="tbl"><table><thead><tr><th>Placed</th><th>Mouser order</th><th>Status</th><th>Purchase order</th></tr></thead>
+      ${full ? `<div class="mr-row">${FILTERS.map(([value, label]) =>
+        `<button data-filter="${value}" class="${value === filter ? 'primary' : ''}">${label}</button>`).join(' ')}</div>` : ''}
+      <div class="tbl"><table><thead><tr><th>Placed</th><th>Mouser order</th><th>Status</th><th>Purchase order</th>${full ? '<th>Total</th>' : ''}</tr></thead>
       <tbody>${orders.length ? orders.map((o) => `
         <tr class="clickable ${o.pk === openPk ? 'open' : ''}" data-order="${o.pk}">
           <td>${fmtDay(o.order_date)}</td>
           <td>${esc(o.sales_order)}<div class="muted small">${esc(o.line_count)} line(s)${o.po_number ? ' · PO no. ' + esc(o.po_number) : ''}</div></td>
           <td>${stateBadge(o.state, o.state_label)}${o.waiting ? ` <span class="small">${o.waiting} to choose</span>` : ''}</td>
           <td>${o.purchase_order ? `<a data-nav="${esc(o.purchase_order.url)}">${esc(o.purchase_order.reference)}</a>` : '—'}</td>
+          ${full ? `<td>${money(o.total, o.currency)}</td>` : ''}
         </tr>
-        ${o.pk === openPk ? `<tr><td colspan="4"><div class="detail" data-detail="${o.pk}"><span class="muted">Loading…</span></div></td></tr>` : ''}
-      `).join('') : '<tr><td colspan="4" class="muted">No Mouser orders imported yet.</td></tr>'}</tbody></table></div>`;
+        ${o.pk === openPk ? `<tr><td colspan="${cols}"><div class="detail" data-detail="${o.pk}"><span class="muted">Loading…</span></div></td></tr>` : ''}
+      `).join('') : `<tr><td colspan="${cols}" class="muted">${filter ? 'No Mouser orders like that.' : 'No Mouser orders imported yet.'}</td></tr>`}</tbody></table></div>`;
+    root.querySelectorAll('button[data-filter]').forEach((btn) => btn.addEventListener('click', () => busy(btn, async () => {
+      filter = btn.dataset.filter;
+      openPk = null;
+      await load();
+      draw();
+    })));
     wireNav(root, ctx);
 
     root.querySelectorAll('tr[data-order]').forEach((tr) => tr.addEventListener('click', () => {
@@ -488,3 +506,4 @@ function mount(a, b, renderer) {
 
 export function renderMouserDashboard(a, b) { return mount(a, b, dashboard); }
 export function renderMouserPanel(a, b) { return mount(a, b, panel); }
+export function renderMouserPurchasing(a, b) { return mount(a, b, (target, ctx) => dashboard(target, ctx, { full: true })); }

@@ -4,6 +4,12 @@ Add notes for the next release under **Unreleased** as you work. `build-and-bump
 
 ## Unreleased
 
+## 0.1.3 — 2026-10-25
+
+- **Mouser Orders panel on the Purchasing page** (Purchasing → Mouser Orders): every imported Mouser order with its status, purchase order and total, filter buttons (All / Needs you / Purchase orders / Ignored), and the same Check Mouser now, Import order and per-line choices as the dashboard item. Only shown to users who can see purchase orders.
+
+- **InvenTree notifications** (the bell in the top bar) for the order import: a check of Mouser that fails (e.g. a key Mouser hasn't accepted - with Mouser's reason), an order waiting for you to choose parts, an order that couldn't be imported - each at most once a day, however many hourly retries - and, unless switched off, each Mouser order made into a purchase order (links to it). New settings **Notifications** (on), **Notify** (users / groups; blank = everyone who may add purchase orders) and **Notify imported orders** (on).
+
 ## 0.1.2 — 2026-10-24
 
 - **Dates are DD-MM-YYYY.** "Import orders placed from" is now entered as DD-MM-YYYY (e.g. 24-10-2026) and anything else is refused when saved; the Mouser Orders dashboard and the check summaries show dates the same way (times as HH:MM). A start date already saved as YYYY-MM-DD no longer counts - the daily check says to set it - so enter it again as DD-MM-YYYY after updating.

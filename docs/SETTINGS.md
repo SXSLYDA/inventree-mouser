@@ -34,6 +34,14 @@ All settings are on the plugin's settings page in InvenTree (Admin Center → Pl
 | Responsible | `PO_RESPONSIBLE` | (blank) | User or group name set as responsible on imported purchase orders. Needed if InvenTree requires a responsible owner on purchase orders. |
 | Add Mouser fees | `ADD_FEES` | yes | Add the order's additional fees (tariffs, handling) as an extra line. |
 
+## Notifications
+
+| Setting | Key | Default | What it does |
+|---|---|---|---|
+| Notifications | `NOTIFY` | yes | InvenTree notifications (the bell) when a check of Mouser fails, an order waits for you or can't be imported - at most once a day for each. |
+| Notify | `NOTIFY_USERS` | (blank) | Users or groups to notify, comma separated (e.g. admin, Purchasing). Blank = everyone who may add purchase orders. |
+| Notify imported orders | `NOTIFY_IMPORTED` | yes | Also a notification for each Mouser order made into (or updating) a purchase order. |
+
 ## Carts
 
 | Setting | Key | Default | What it does |

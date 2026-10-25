@@ -139,6 +139,26 @@ class MouserIntegrationPlugin(MouserSupplierMixin, AppMixin, ScheduleMixin, Sett
             'validator': bool,
             'default': True,
         },
+        # ---------------------------------------------------------------- notifications
+        'NOTIFY': {
+            'name': 'Notifications',
+            'description': ('InvenTree notifications (the bell) when a check of Mouser fails, an order waits for you '
+                            'or can\'t be imported - at most once a day for each'),
+            'validator': bool,
+            'default': True,
+        },
+        'NOTIFY_USERS': {
+            'name': 'Notify',
+            'description': ('Users or groups to notify, comma separated (e.g. admin, Purchasing). Blank = everyone '
+                            'who may add purchase orders'),
+            'default': '',
+        },
+        'NOTIFY_IMPORTED': {
+            'name': 'Notify imported orders',
+            'description': 'Also a notification for each Mouser order made into (or updating) a purchase order',
+            'validator': bool,
+            'default': True,
+        },
         # ---------------------------------------------------------------- carts
         'CART_UPDATE_PRICES': {
             'name': 'Copy cart prices to the purchase order',
@@ -196,7 +216,23 @@ class MouserIntegrationPlugin(MouserSupplierMixin, AppMixin, ScheduleMixin, Sett
         }]
 
     def get_ui_panels(self, request, context, **kwargs):
-        """A "Mouser" panel on purchase orders from the Mouser supplier."""
+        """
+        A "Mouser Orders" panel on the Purchasing page (every imported order,
+        filters, totals - the dashboard item, bigger), and a "Mouser" panel on
+        purchase orders from the Mouser supplier.
+        """
+        if (context or {}).get('target_model') == 'purchasing':
+            user = getattr(request, 'user', None)
+            if user is None or not user.has_perm('order.view_purchaseorder'):
+                return []
+            return [{
+                'key': 'mouser-orders',
+                'title': 'Mouser Orders',
+                'description': 'Mouser orders imported as purchase orders, and the ones waiting for you',
+                'icon': 'ti:shopping-cart:outline',
+                'source': self.plugin_static_file('mouser_ui.js:renderMouserPurchasing'),
+                'context': self.api_context(),
+            }]
         if (context or {}).get('target_model') != 'purchaseorder' or not (context or {}).get('target_id'):
             return []
         from order.models import PurchaseOrder
