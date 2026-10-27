@@ -20,13 +20,21 @@ function apiBase(ctx) {
   return (ctx && ctx.context && ctx.context.api) || DEFAULT_API;
 }
 
+// InvenTree's API client gives up after 5 s (api.defaults.timeout). Creating parts from Mouser
+// (search, picture, supplier part) or checking Mouser takes longer, so every call sets its own.
+const READ_TIMEOUT_MS = 30000;
+const WRITE_TIMEOUT_MS = 180000;
+const TIMED_OUT = 'This is taking longer than expected - it may still finish on the server. Press Refresh in a minute.';
+
 async function request(ctx, method, url, body, params) {
+  const timeout = method === 'GET' ? READ_TIMEOUT_MS : WRITE_TIMEOUT_MS;
   if (ctx && ctx.api && typeof ctx.api.request === 'function') {
     try {
-      const r = await ctx.api.request({ method, url, data: body, params });
+      const r = await ctx.api.request({ method, url, data: body, params, timeout });
       return r.data;
     } catch (err) {
       const d = (err.response && err.response.data) || {};
+      if (!err.response && (err.code === 'ECONNABORTED' || /timeout/i.test(err.message || ''))) throw new Error(TIMED_OUT);
       throw new Error(d.error || d.detail || d.message || err.message);
     }
   }
@@ -82,8 +90,11 @@ function money(v, cur) {
   return isNaN(n) ? esc(v) : `${n.toFixed(n < 10 ? 3 : 2)}${cur ? ' ' + esc(cur) : ''}`;
 }
 
+// Links carry the full address (/web/part/473) as href, so a middle-click or ctrl-click opens
+// it in a new tab. A plain click stays in the page: ctx.navigate is InvenTree's router, which
+// adds /web itself - given /web/part/473 it went to /web/web/part/473.
 function navigate(ctx, url) {
-  if (ctx && typeof ctx.navigate === 'function') ctx.navigate(url);
+  if (ctx && typeof ctx.navigate === 'function') ctx.navigate(url.replace(/^\/web(?=\/)/, ''));
   else window.location.href = url;
 }
 
@@ -160,12 +171,13 @@ function matchBadge(line) {
 
 function partLink(p) {
   if (!p) return '';
-  return `<a data-nav="${esc(p.url)}">${esc(p.name)}</a>${p.IPN && p.IPN !== p.name ? ` <span class="muted small">${esc(p.IPN)}</span>` : ''}`
+  return `<a href="${esc(p.url)}" data-nav="${esc(p.url)}">${esc(p.name)}</a>${p.IPN && p.IPN !== p.name ? ` <span class="muted small">${esc(p.IPN)}</span>` : ''}`
     + (p.active === false ? ' <span class="badge err">inactive</span>' : '');
 }
 
 function wireNav(root, ctx) {
   root.querySelectorAll('[data-nav]').forEach((a) => a.addEventListener('click', (ev) => {
+    if (ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.button === 1) return;  // new tab: the browser uses href
     ev.preventDefault();
     ev.stopPropagation();
     navigate(ctx, a.dataset.nav);
@@ -242,7 +254,7 @@ function renderOrderDetail(el, ctx, order, canChange, onChange) {
       ${message ? `<div class="msg ${message.ok ? 'ok' : 'err'}">${esc(message.text)}</div>` : ''}
       ${order.message ? `<div class="msg ${order.state === 'failed' ? 'err' : ''}">${esc(order.message)}</div>` : ''}
       ${orderHeader(order)}
-      ${order.purchase_order ? `<div class="mr-row">Purchase order: <a data-nav="${esc(order.purchase_order.url)}">${esc(order.purchase_order.reference)}</a>
+      ${order.purchase_order ? `<div class="mr-row">Purchase order: <a href="${esc(order.purchase_order.url)}" data-nav="${esc(order.purchase_order.url)}">${esc(order.purchase_order.reference)}</a>
         <span class="muted">${esc(order.purchase_order.status)}</span></div>` : ''}
       ${linesTable(order, editable)}
       ${canChange ? `<div class="mr-row">
@@ -274,7 +286,7 @@ function renderOrderDetail(el, ctx, order, canChange, onChange) {
           const parts = await searchParts(ctx, input.value.trim());
           box.innerHTML = parts.length ? parts.map((p) => `<div class="opt">
               <button class="small" data-line="${pk}" data-act="link" data-part="${p.pk}">Use</button>
-              <a data-nav="/web/part/${p.pk}">${esc(p.name)}</a> <span class="muted small">${esc(p.IPN || '')} ${esc((p.description || '').slice(0, 60))}</span>
+              <a href="/web/part/${p.pk}" data-nav="/web/part/${p.pk}">${esc(p.name)}</a> <span class="muted small">${esc(p.IPN || '')} ${esc((p.description || '').slice(0, 60))}</span>
             </div>`).join('') : '<span class="muted small">No purchaseable parts found</span>';
           wireNav(box, ctx);
           box.querySelectorAll('button[data-line]').forEach((b2) => b2.addEventListener('click', () => busy(b2, async () => {
@@ -364,7 +376,7 @@ function dashboard(target, ctx, opts = {}) {
           <td>${fmtDay(o.order_date)}</td>
           <td>${esc(o.sales_order)}<div class="muted small">${esc(o.line_count)} line(s)${o.po_number ? ' · PO no. ' + esc(o.po_number) : ''}</div></td>
           <td>${stateBadge(o.state, o.state_label)}${o.waiting ? ` <span class="small">${o.waiting} to choose</span>` : ''}</td>
-          <td>${o.purchase_order ? `<a data-nav="${esc(o.purchase_order.url)}">${esc(o.purchase_order.reference)}</a>` : '—'}</td>
+          <td>${o.purchase_order ? `<a href="${esc(o.purchase_order.url)}" data-nav="${esc(o.purchase_order.url)}">${esc(o.purchase_order.reference)}</a>` : '—'}</td>
           ${full ? `<td>${money(o.total, o.currency)}</td>` : ''}
         </tr>
         ${o.pk === openPk ? `<tr><td colspan="${cols}"><div class="detail" data-detail="${o.pk}"><span class="muted">Loading…</span></div></td></tr>` : ''}

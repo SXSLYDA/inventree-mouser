@@ -47,8 +47,8 @@ function makeCtx(routes, context = {}) {
     navigate: (url) => navigated.push(url),
     context: { api: API, ...context },
     api: {
-      request: async ({ method, url, data, params }) => {
-        calls.push({ method, url, data, params });
+      request: async ({ method, url, data, params, timeout }) => {
+        calls.push({ method, url, data, params, timeout });
         const key = `${method} ${url.replace(API, '')}`;
         const handler = routes[key];
         if (!handler) throw Object.assign(new Error('no route ' + key), { response: { data: { error: 'no route ' + key } } });
@@ -98,7 +98,36 @@ test('held order: choose a candidate, the order goes through', async () => {
   assert.match(el.textContent, /Created PO-0001/);
   assert.match(el.querySelector('tr[data-order="1"]').textContent, /Imported/);
   click(el.querySelector('[data-nav="/web/purchasing/purchase-order/3"]'));
-  assert.deepEqual(ctx.navigated, ['/web/purchasing/purchase-order/3']);
+  // InvenTree's router adds /web itself - /web/... here went to /web/web/...
+  assert.deepEqual(ctx.navigated, ['/purchasing/purchase-order/3']);
+  const part = el.querySelector('a[data-nav="/web/part/5"]');
+  assert.equal(part.getAttribute('href'), '/web/part/5', 'real href, so ctrl / middle click opens a new tab');
+  click(part);
+  assert.deepEqual(ctx.navigated, ['/purchasing/purchase-order/3', '/part/5'], 'a plain click stays in the page');
+  part.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, ctrlKey: true }));
+  assert.equal(ctx.navigated.length, 2, 'ctrl-click is left to the browser');
+  const post = ctx.calls.find((c) => c.method === 'POST');
+  assert.ok(post.timeout >= 120000, `creating parts gets a long timeout, not InvenTree's 5 s (${post.timeout})`);
+  assert.ok(ctx.calls.find((c) => c.method === 'GET').timeout >= 30000);
+});
+
+test('a call that times out says it may still finish', async () => {
+  const el = document.createElement('div');
+  const ctx = makeCtx({
+    'GET status/': STATUS, 'GET orders/': { orders: [HELD] }, 'GET orders/1/': { order: HELD },
+  });
+  ctx.api.request = async ({ method, url, timeout }) => {
+    const key = `${method} ${url.replace(API, '')}`;
+    if (key === 'POST lines/11/') throw Object.assign(new Error(`timeout of ${timeout}ms exceeded`), { code: 'ECONNABORTED' });
+    return { data: { 'GET status/': STATUS, 'GET orders/': { orders: [HELD] }, 'GET orders/1/': { order: HELD } }[key] };
+  };
+  ui.renderMouserDashboard(el, ctx);
+  await settle();
+  click(el.querySelector('tr[data-order="1"]'));
+  await settle();
+  click(el.querySelector('button[data-line="11"][data-act="create"]'));
+  await settle();
+  assert.match(el.textContent, /may still finish on the server/);
 });
 
 test('held order: search for another part uses InvenTree\'s part API', async () => {

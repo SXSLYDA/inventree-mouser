@@ -4,6 +4,11 @@ Add notes for the next release under **Unreleased** as you work. `build-and-bump
 
 ## Unreleased
 
+## 0.1.5 — 2026-10-27
+
+- **Part links open the part in the same tab.** Links on the Mouser Orders dashboard / Purchasing panel / purchase order panel went to `/web/web/part/473` (InvenTree's router adds `/web` itself) - a page that doesn't exist, which sent you off to log in again. A plain click now opens the part (or purchase order) in place; ctrl-, shift- or middle-click opens it in a new tab.
+- **No more "timeout of 5000ms exceeded"** when choosing a part or creating a new one on a held order. InvenTree's API client gives up after 5 seconds, but creating a part from Mouser (search, picture, supplier part) and making the purchase order takes longer - the part was made, only the panel stopped waiting. The panels now wait up to 3 minutes for changes and 30 seconds for reads, and if even that runs out they say it may still finish on the server rather than showing an error.
+
 ## 0.1.4 — 2026-10-26
 
 - **Notification links fixed.** A notification about no particular record was attached by InvenTree to its UI-notification plugin, so clicking it opened that plugin's settings ("plugin 38 - not configured"). Notifications are now about the Mouser order / the check / the purchase order: "needs you", "could not be imported" and "check failed" open **Purchasing → Mouser Orders**, an imported order opens its purchase order. Who sees them still follows purchase-order permissions. Notifications already in the list keep their old link - mark them read.
