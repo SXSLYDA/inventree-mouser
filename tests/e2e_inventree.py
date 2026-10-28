@@ -362,6 +362,45 @@ try:
     r = client.post('/plugin/mouser/api/orders/import/', {'number': '999'}, content_type='application/json')
     check('unknown number -> clear error', r.status_code == 400 and 'error' in r.json(), r.content[:200])
 
+    section('An order Mouser has not processed yet (web order number, no sales order number)')
+    o12 = copy.deepcopy(order_raw)
+    o12['SalesOrderId'], o12['WebOrderId'], o12['OrderDate'] = '', 40700012, '2026-10-22T09:30:00'
+    o12['OrderLines'] = copy.deepcopy(order_raw['OrderLines'][:1])
+    pending = fake.add_order(o12)
+    run = importer.check(source='manual')
+    check('check is ok - not a failure', run.ok and not run.counts.get('failed'), run.message)
+    check('counted as waiting for Mouser', run.counts.get('waiting') == 1 and 'not processed by Mouser yet' in run.message,
+          run.message)
+    check('nothing stored for it', not MouserOrder.objects.filter(web_order='40700012').exists())
+    check('Mouser not asked for a blank sales order', not any(
+        c[1] == '/orderhistory/salesOrderNumber' and not c[2].get('salesOrderNumber') for c in fake.calls))
+    r = client.post('/plugin/mouser/api/orders/import/', {'number': '40700012'}, content_type='application/json')
+    check('import by its web number -> says Mouser has not processed it', r.status_code == 400
+          and "hasn't processed web order 40700012" in r.json()['error'], r.content[:300])
+    # Mouser processes it: it gets a sales order number
+    del fake.orders['web-40700012']
+    pending['SalesOrderId'] = '300000012'
+    fake.orders['300000012'] = pending
+    run = importer.check(source='manual')
+    o12_row = MouserOrder.objects.filter(sales_order='300000012').first()
+    check('imported once it has a sales order number', o12_row is not None and o12_row.state == 'imported'
+          and o12_row.web_order == '40700012', (run.message, o12_row and o12_row.message))
+    # stored under its web number by an older version ("W40700013") - moved to the real number, not imported twice
+    po_w = PurchaseOrder.objects.create(reference=PurchaseOrder.generate_reference(), supplier=mouser,
+                                        supplier_reference='W40700013')
+    MouserOrder.objects.create(sales_order='W40700013', web_order='40700013', state=MouserOrder.STATE_IMPORTED,
+                               purchase_order=po_w)
+    o13 = copy.deepcopy(order_raw)
+    o13['SalesOrderId'], o13['WebOrderId'], o13['OrderDate'] = '300000013', 40700013, '2026-10-22T10:00:00'
+    fake.add_order(o13)
+    pos_before = PurchaseOrder.objects.count()
+    importer.check(source='manual')
+    po_w.refresh_from_db()
+    check('old web-number row moved to its sales order number, no second PO',
+          MouserOrder.objects.filter(sales_order='300000013', web_order='40700013').count() == 1
+          and not MouserOrder.objects.filter(sales_order='W40700013').exists()
+          and po_w.supplier_reference == '300000013' and PurchaseOrder.objects.count() == pos_before)
+
     # ------------------------------------------------------------------ ambiguous + skip + ignore
     section('Ambiguous match: pick one, leave one off')
     Part.objects.create(name='RKEF185-A', purchaseable=True, category=connectors)

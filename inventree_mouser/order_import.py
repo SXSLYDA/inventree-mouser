@@ -156,8 +156,9 @@ class OrderImporter:
             rows = orders.order_history(self.order_key, since, today)
             seen = set()
             for row in rows:
-                number = row['sales_order']
-                seen.add(number)
+                number = row['sales_order'] or f"web order {row['web_order']}"
+                if row['sales_order']:
+                    seen.add(row['sales_order'])
                 try:
                     state = self.import_summary(row, source)
                     counts[state] += 1
@@ -186,17 +187,41 @@ class OrderImporter:
         if not total:
             return f'No Mouser orders since {since:%d-%m-%Y}.'
         labels = {'imported': 'imported', 'linked': 'linked to existing POs', 'held': 'need review',
-                  'ignored': 'ignored', 'failed': 'failed', 'done': 'already done', 'before_start': 'before the start date'}
+                  'ignored': 'ignored', 'failed': 'failed', 'done': 'already done', 'before_start': 'before the start date',
+                  'waiting': 'not processed by Mouser yet (imported once Mouser gives them a sales order number)'}
         parts = [f'{n} {labels.get(k, k)}' for k, n in counts.items() if n]
         return f'{total} Mouser order(s) since {since:%d-%m-%Y}: ' + ', '.join(parts) + '.'
 
+    def find_existing(self, sales_order, web_order):
+        """
+        The MouserOrder already stored for this Mouser order - by sales order number, else by web
+        order number. A row first stored under its web order number (before Mouser gave it a sales
+        order number) is moved to the real number, and so is its purchase order's supplier reference.
+        """
+        order = MouserOrder.objects.filter(sales_order=sales_order).first() if sales_order else None
+        if order is None and web_order:
+            order = MouserOrder.objects.filter(web_order=web_order).first()
+            if order is not None and sales_order and order.sales_order != sales_order:
+                old = order.sales_order
+                order.sales_order = sales_order[:40]
+                order.save()
+                po = order.purchase_order
+                if po is not None and po.supplier_reference == old:
+                    po.supplier_reference = sales_order[:64]
+                    po.save()
+        return order
+
     def import_summary(self, row, source):
         """One row of Mouser's order list -> state word for the run summary."""
-        order = MouserOrder.objects.filter(sales_order=row['sales_order']).first()
+        order = self.find_existing(row['sales_order'], row['web_order'])
         if order and order.state in (MouserOrder.STATE_IMPORTED, MouserOrder.STATE_LINKED, MouserOrder.STATE_IGNORED):
             return 'done'
         if order and order.state == MouserOrder.STATE_HELD:
             return self.process(order).state
+        if not row['sales_order']:
+            # Mouser gives an order its sales order number when it processes it; until then the
+            # order isn't final (and has no number to file it under) - it comes in on a later check.
+            return 'waiting'
         start = self.start_date
         if start and row['order_date'] and parse_date(row['order_date']) and parse_date(row['order_date']) < start:
             return 'before_start'
@@ -228,6 +253,12 @@ class OrderImporter:
             detail = orders.order_detail(self.order_key, sales_order=number)
         except MouserError:
             detail = orders.order_detail(self.order_key, web_order=number)
+        if not detail['sales_order']:
+            raise MouserError(f'Mouser hasn\'t processed web order {number} yet - it has no sales order number. '
+                              'It is imported by the daily check once it has one (or try again later).')
+        existing = self.find_existing(detail['sales_order'], detail['web_order'])
+        if existing and existing.state != MouserOrder.STATE_FAILED:
+            return self.process(existing, user=user)
         if is_cancelled(detail['status']):
             order = self.store(detail, 'by-number')
             order.state, order.message = MouserOrder.STATE_IGNORED, 'Cancelled on Mouser.'
@@ -238,8 +269,7 @@ class OrderImporter:
     # ------------------------------------------------------------------ storing
     def store(self, detail, source):
         """Save (or refresh) the MouserOrder and, the first time, its lines."""
-        number = detail['sales_order'] or f"W{detail['web_order']}"
-        order, created = MouserOrder.objects.get_or_create(sales_order=number[:40])
+        order, created = MouserOrder.objects.get_or_create(sales_order=detail['sales_order'][:40])
         order.web_order = detail['web_order'][:40]
         order.po_number = (detail['po_number'] or '')[:64]
         order.order_date = parse_date(detail['order_date'])

@@ -38,7 +38,8 @@ class FakeMouser:
     # ------------------------------------------------------------------ data
     def add_order(self, detail, status_display=None, po_number=None):
         detail = copy.deepcopy(detail)
-        self.orders[str(detail['SalesOrderId'])] = detail
+        # an order Mouser hasn't processed yet has no sales order number (SalesOrderId '')
+        self.orders[str(detail['SalesOrderId'] or f"web-{detail['WebOrderId']}")] = detail
         detail.setdefault('_summary', {})
         if status_display:
             detail['_summary']['OrderStatusDisplay'] = status_display
@@ -93,7 +94,7 @@ class FakeMouser:
                 day = datetime.fromisoformat(d['OrderDate']).date()
                 if start <= day <= end:
                     s = d.get('_summary', {})
-                    items.append({'DateCreated': d['OrderDate'], 'SalesOrderNumber': number,
+                    items.append({'DateCreated': d['OrderDate'], 'SalesOrderNumber': d['SalesOrderId'] or None,
                                   'WebOrderNumber': str(d.get('WebOrderId') or ''),
                                   'PoNumber': s.get('PoNumber', (d.get('PaymentDetail') or {}).get('PoNumber', '')),
                                   'BuyerName': d.get('BuyerName', ''),

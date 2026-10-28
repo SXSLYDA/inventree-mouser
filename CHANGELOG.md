@@ -4,6 +4,10 @@ Add notes for the next release under **Unreleased** as you work. `build-and-bump
 
 ## Unreleased
 
+## 0.1.6 — 2026-10-28
+
+- **Orders Mouser hasn't processed yet no longer fail the check.** A new order has only a web order number until Mouser processes it and gives it a sales order number. The check asked Mouser for its details by the (blank) sales order number, so each one showed as failed - "Problems: : Give a sales order number or a web order number." - and set off a "check failed" notification. Such an order is now counted as "not processed by Mouser yet" and left for a later check, which imports it once it has its sales order number. *Import order* with its web order number says the same instead of storing it under a made-up number. An order an earlier version stored under its web order number (`W…`) is moved to its sales order number (and its purchase order's supplier reference with it) rather than imported again.
+
 ## 0.1.5 — 2026-10-27
 
 - **Part links open the part in the same tab.** Links on the Mouser Orders dashboard / Purchasing panel / purchase order panel went to `/web/web/part/473` (InvenTree's router adds `/web` itself) - a page that doesn't exist, which sent you off to log in again. A plain click now opens the part (or purchase order) in place; ctrl-, shift- or middle-click opens it in a new tab.
