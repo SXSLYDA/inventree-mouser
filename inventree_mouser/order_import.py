@@ -43,12 +43,17 @@ from django.utils import timezone
 from mouser_lookup import MouserError, orders
 
 from . import hooks, notify
-from .dates import parse_start_date
+from .dates import format_date, parse_start_date
+from .receiving import SUPPLIER_INVOICES_KEY
 from .matching import match_line
 from .supplier import existing_purchaseable_part
 from .models import ImportRun, MouserOrder, MouserOrderLine
 
 logger = logging.getLogger('inventree')
+
+# Imported orders older than a check's window are kept up to date with Mouser (status, shipments,
+# invoices, tracking) - the "Keep updating for" setting - at most this many a check.
+REFRESH_LIMIT = 40
 
 NEW_PARTS_CATEGORY_NAME = 'Mouser Imports'
 OPEN_PO_STATUSES = ('pending', 'placed', 'on_hold')
@@ -169,6 +174,15 @@ class OrderImporter:
             # held orders not in this window: parts may have been set up since
             for order in MouserOrder.objects.filter(state=MouserOrder.STATE_HELD).exclude(sales_order__in=seen):
                 self.process(order)
+            # orders already made into purchase orders but older than the window: Mouser's status,
+            # invoices and tracking still change after the order is placed
+            for order in self.to_refresh(today, seen):
+                try:
+                    if self.refresh(order):
+                        counts['updated'] += 1
+                except Exception:
+                    logger.warning('Mouser order %s: could not refresh status / invoice / tracking',
+                                   order.sales_order, exc_info=True)
             run.ok = not problems
             run.message = self.summary(counts, len(rows), since) + (' Problems: ' + '; '.join(problems) if problems else '')
         except Exception as exc:
@@ -188,6 +202,7 @@ class OrderImporter:
             return f'No Mouser orders since {since:%d-%m-%Y}.'
         labels = {'imported': 'imported', 'linked': 'linked to existing POs', 'held': 'need review',
                   'ignored': 'ignored', 'failed': 'failed', 'done': 'already done', 'before_start': 'before the start date',
+                  'updated': 'updated from Mouser (status, invoice or tracking)',
                   'waiting': 'not processed by Mouser yet (imported once Mouser gives them a sales order number)'}
         parts = [f'{n} {labels.get(k, k)}' for k, n in counts.items() if n]
         return f'{total} Mouser order(s) since {since:%d-%m-%Y}: ' + ', '.join(parts) + '.'
@@ -214,7 +229,14 @@ class OrderImporter:
     def import_summary(self, row, source):
         """One row of Mouser's order list -> state word for the run summary."""
         order = self.find_existing(row['sales_order'], row['web_order'])
-        if order and order.state in (MouserOrder.STATE_IMPORTED, MouserOrder.STATE_LINKED, MouserOrder.STATE_IGNORED):
+        if order and order.state in (MouserOrder.STATE_IMPORTED, MouserOrder.STATE_LINKED):
+            try:
+                return 'updated' if self.refresh(order, row) else 'done'
+            except Exception:  # the order itself is fine - try the refresh again next check
+                logger.warning('Mouser order %s: could not refresh status / invoice / tracking',
+                               order.sales_order, exc_info=True)
+                return 'done'
+        if order and order.state == MouserOrder.STATE_IGNORED:
             return 'done'
         if order and order.state == MouserOrder.STATE_HELD:
             return self.process(order).state
@@ -234,6 +256,114 @@ class OrderImporter:
         detail = orders.order_detail(self.order_key, sales_order=row['sales_order'])
         detail['po_number'] = detail['po_number'] or row['po_number']
         return self.process(self.store(detail, source)).state
+
+    # ------------------------------------------------------------------ keeping imported orders current
+    @staticmethod
+    def invoices(detail):
+        return sorted({i for line in (detail or {}).get('lines') or [] for i in line.get('invoices') or []})
+
+    @staticmethod
+    def shipping(detail):
+        """{line_no: (Mouser quantity, ((invoice, date, quantity), ...))} - what has shipped, line by line."""
+        return {ln['line_no']: (ln.get('quantity'),
+                                tuple((sh.get('invoice'), sh.get('date'), sh.get('quantity'))
+                                      for sh in ln.get('shipments') or []))
+                for ln in (detail or {}).get('lines') or []}
+
+    def settled(self, order):
+        """
+        Nothing more to come from Mouser: cancelled, or complete with every line shipped (each has
+        at least one shipment/invoice) - a back-ordered or part-shipped line keeps it open.
+        """
+        status = (order.mouser_status or '').lower()
+        if is_cancelled(status):
+            return True
+        if 'complete' not in status and 'closed' not in status:
+            return False
+        lines = [ln for ln in (order.detail or {}).get('lines') or [] if (ln.get('quantity') or 0) > 0]
+        return bool(lines) and all(ln.get('shipments') or ln.get('invoices') for ln in lines)
+
+    def keep_days(self):
+        try:
+            return max(int(self.setting('KEEP_UPDATING_DAYS', 180)), 1)
+        except (TypeError, ValueError):
+            return 180
+
+    def to_refresh(self, today, seen):
+        """Orders with a purchase order, outside this check's window, that Mouser may still change."""
+        since = today - timedelta(days=self.keep_days())
+        candidates = (MouserOrder.objects
+                      .filter(state__in=(MouserOrder.STATE_IMPORTED, MouserOrder.STATE_LINKED),
+                              purchase_order__isnull=False, order_date__gte=since)
+                      .exclude(sales_order__in=seen).order_by('-order_date'))
+        return [o for o in candidates if not self.settled(o)][:REFRESH_LIMIT]
+
+    def refresh(self, order, row=None):
+        """
+        Bring an imported order up to date with Mouser - its status, each line's shipments (a back
+        order ships later, a line can ship in several parts, each with its own invoice), invoice
+        numbers, tracking and totals - on the order and on its purchase order. Lines, quantities,
+        prices and receiving are left as they are: they may have been changed or received in
+        InvenTree, and receiving is a person's job. A line Mouser has cut (a cancelled back order)
+        or a cancelled order is flagged and notified, not changed. Returns True if anything changed.
+        Mouser is only asked again while the order isn't settled (see settled()), or when its order
+        list shows a different status.
+        """
+        if not order.purchase_order_id:
+            return False
+        if self.settled(order) and (row is None or (row['status'] or '') == (order.mouser_status or '')):
+            return False
+        detail = orders.order_detail(self.order_key, sales_order=order.sales_order)
+        before = order.detail or {}
+        fresh = jsonable(detail)
+        fresh['po_number'] = before.get('po_number') or fresh.get('po_number') or ''
+        old = (order.mouser_status, self.shipping(before), before.get('tracking') or [], before.get('totals'))
+        new = (detail['status'][:60], self.shipping(fresh), fresh.get('tracking') or [], fresh.get('totals'))
+        if new == old:
+            return False
+
+        notes, alerts = [], []
+        if new[0] != old[0]:
+            notes.append(f'Mouser status now {new[0] or "blank"}')
+        ordered = {ln.line_no: ln for ln in order.lines.all()}
+        names = {ln['line_no']: ln.get('mouser_pn') or ln.get('mpn') or f"line {ln['line_no']}"
+                 for ln in fresh.get('lines') or []}
+        for line_no, (qty, shipments) in sorted(new[1].items()):
+            was_qty, was_shipments = old[1].get(line_no, (None, ()))
+            for invoice, day, sent in shipments:
+                if (invoice, day, sent) not in was_shipments:
+                    notes.append(f'{names[line_no]} shipped' + (f' ({sent})' if sent else '')
+                                 + (f' - invoice {invoice}' if invoice else '') + (f', {format_date(day)}' if day else ''))
+            first = ordered.get(line_no)
+            if first is not None and qty is not None and qty < first.quantity and qty != was_qty:
+                alerts.append(f'{names[line_no]}: Mouser now has {qty} of the {first.quantity} ordered '
+                              f'(back order cut?) - change the line on {order.purchase_order.reference} if that\'s right')
+        waiting = [names[n] for n, (qty, shipments) in sorted(new[1].items()) if qty and not shipments]
+        if waiting and (notes or alerts):
+            notes.append('still to ship: ' + ', '.join(waiting))
+        added = [i for i in self.invoices(fresh) if i not in self.invoices(before)]
+        if added and not any('invoice' in n for n in notes):
+            notes.append('invoice ' + ', '.join(added))
+        if new[2] != old[2] and new[2]:
+            notes.append('tracking ' + ', '.join(t.get('number') or '?' for t in new[2]))
+        if is_cancelled(new[0]) and not is_cancelled(old[0]):
+            alerts.append(f'CANCELLED on Mouser - cancel {order.purchase_order.reference} in InvenTree if that\'s right')
+
+        order.mouser_status = new[0]
+        order.detail = fresh
+        if notes or alerts:
+            stamp = timezone.localtime().strftime('%d-%m-%Y')
+            order.message = (order.message + f' {stamp}: ' + '; '.join(notes + alerts) + '.').strip()
+        order.save()
+
+        po = order.purchase_order
+        meta = dict(po.metadata or {})
+        meta['mouser'] = {**(meta.get('mouser') or {}), **self.metadata(order), 'updated': timezone.now().isoformat()}
+        po.metadata = meta
+        po.save()
+        if alerts:
+            notify.order_changed(self.plugin, order, '; '.join(alerts) + '.')
+        return True
 
     def import_number(self, number, user=None):
         """
@@ -480,9 +610,11 @@ class OrderImporter:
     def metadata(self, order):
         detail = order.detail or {}
         invoices = sorted({i for line in detail.get('lines') or [] for i in line.get('invoices') or []})
+        po = order.purchase_order if order.purchase_order_id else None
+        imported = (((po.metadata or {}).get('mouser') or {}).get('imported') if po else None) or timezone.now().isoformat()
         return {'sales_order': order.sales_order, 'web_order': order.web_order, 'po_number': order.po_number,
                 'order_date': order.order_date.isoformat() if order.order_date else '', 'invoices': invoices,
-                'tracking': detail.get('tracking') or [], 'imported': timezone.now().isoformat()}
+                'tracking': detail.get('tracking') or [], 'status': order.mouser_status, 'imported': imported}
 
     def create_po(self, order, resolved, notes, user):
         from order.models import PurchaseOrder, PurchaseOrderExtraLine
@@ -499,7 +631,9 @@ class OrderImporter:
             responsible=self.responsible_owner(user),
             destination=self.destination(),
         )
-        po.metadata = {'mouser': self.metadata(order)}
+        # supplier_invoices: billed per Mouser invoice (filled as each box is received by its invoice) -
+        # the Xero plugin waits for those instead of billing the whole order
+        po.metadata = {'mouser': self.metadata(order), SUPPLIER_INVOICES_KEY: []}
         po.save()
         for line, supplier_part in resolved:
             po.add_line_item(supplier_part, line.quantity, group=False, reference=f'Mouser {line.mouser_pn}'[:100],
@@ -541,6 +675,7 @@ class OrderImporter:
         po.supplier_reference = order.sales_order[:64]
         meta = dict(po.metadata or {})
         meta['mouser'] = {**(meta.get('mouser') or {}), **self.metadata(order)}
+        meta.setdefault(SUPPLIER_INVOICES_KEY, [])
         po.metadata = meta
         po.save()
         if not po.extra_lines.filter(reference='Mouser fees').exists():

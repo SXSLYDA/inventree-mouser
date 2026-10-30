@@ -193,6 +193,12 @@ function trackingHtml(order) {
     : esc(x.number)).join(', ');
 }
 
+// "3 / 5 lines shipped" on an order whose lines haven't all shipped (back orders, split shipments)
+function shippedNote(o) {
+  if (!o.mouser_lines || o.shipped_lines >= o.mouser_lines) return '';
+  return ` <span class="badge warn">${esc(o.shipped_lines)} / ${esc(o.mouser_lines)} lines shipped</span>`;
+}
+
 function orderHeader(order) {
   return `<dl class="mr-grid">
     <dt>Mouser order</dt><dd>${esc(order.sales_order)}${order.web_order ? ` <span class="muted">(web ${esc(order.web_order)})</span>` : ''}</dd>
@@ -200,12 +206,37 @@ function orderHeader(order) {
     <dt>PO number at checkout</dt><dd>${esc(order.po_number) || '—'}</dd>
     <dt>Invoice</dt><dd>${(order.invoices || []).map(esc).join(', ') || '—'}</dd>
     <dt>Tracking</dt><dd>${trackingHtml(order)}</dd>
+    ${order.backorder_shipping_method ? `<dt>Back orders ship by</dt><dd>${esc(order.backorder_shipping_method)}</dd>` : ''}
     <dt>Total</dt><dd>${money((order.totals || {}).total, order.currency)}${(order.totals || {}).fees && Number(order.totals.fees) > 0
       ? ` <span class="muted">(fees ${money(order.totals.fees, order.currency)})</span>` : ''}</dd>
   </dl>`;
 }
 
+// Shipping for one line, from Mouser's shipments (each with its invoice) and what InvenTree has received.
+// Mouser's API gives each shipment's invoice and date, not always how many were in it.
+function shippingCell(order, ln) {
+  if (!order.purchase_order) return '';
+  const parts = [];
+  const shipments = ln.shipments || [];
+  if (ln.mouser_quantity !== undefined && Number(ln.mouser_quantity) < Number(ln.quantity)) {
+    parts.push(`<span class="badge err">Mouser now ${esc(ln.mouser_quantity)} of ${esc(ln.quantity)}</span>`);
+  }
+  if (!shipments.length) {
+    parts.push('<span class="badge warn">Not shipped yet</span>');
+  } else {
+    if (shipments.length > 1) parts.push(`<span class="badge info">${shipments.length} shipments</span>`);
+    parts.push(shipments.map((sh) => `<div class="small">Shipped ${sh.date ? fmtDay(sh.date) : ''}${sh.quantity ? ` · ${esc(sh.quantity)}` : ''}${
+      sh.invoice ? ` · inv ${esc(sh.invoice)}` : ''}</div>`).join(''));
+  }
+  if (ln.ordered) {
+    const done = Number(ln.received) >= Number(ln.ordered);
+    parts.push(`<div class="small ${done ? '' : 'muted'}">Received ${esc(ln.received)} / ${esc(ln.ordered)}</div>`);
+  }
+  return parts.join(' ');
+}
+
 function linesTable(order, editable) {
+  const shipCol = !!order.purchase_order;
   const rows = (order.lines || []).map((ln) => {
     let partCell = ln.part ? partLink(ln.part) : '';
     if (ln.supplier_part) partCell += ` <span class="muted small">(${esc(ln.supplier_part)})</span>`;
@@ -233,10 +264,12 @@ function linesTable(order, editable) {
       <td>${money(ln.unit_price, order.currency)}</td>
       <td>${matchBadge(ln)} ${partCell}
         ${ln.message ? `<div class="muted small">${esc(ln.message)}</div>` : ''}${pick}</td>
+      ${shipCol ? `<td>${shippingCell(order, ln)}</td>` : ''}
     </tr>`;
   }).join('');
-  return `<div class="tbl"><table><thead><tr><th>#</th><th>Mouser / MPN</th><th>Qty</th><th>Unit</th><th>InvenTree part</th></tr></thead>
-    <tbody>${rows || '<tr><td colspan="5" class="muted">No lines</td></tr>'}</tbody></table></div>`;
+  return `<div class="tbl"><table><thead><tr><th>#</th><th>Mouser / MPN</th><th>Qty</th><th>Unit</th><th>InvenTree part</th>${
+    shipCol ? '<th>Shipping</th>' : ''}</tr></thead>
+    <tbody>${rows || `<tr><td colspan="${shipCol ? 6 : 5}" class="muted">No lines</td></tr>`}</tbody></table></div>`;
 }
 
 async function searchParts(ctx, term) {
@@ -375,7 +408,7 @@ function dashboard(target, ctx, opts = {}) {
         <tr class="clickable ${o.pk === openPk ? 'open' : ''}" data-order="${o.pk}">
           <td>${fmtDay(o.order_date)}</td>
           <td>${esc(o.sales_order)}<div class="muted small">${esc(o.line_count)} line(s)${o.po_number ? ' · PO no. ' + esc(o.po_number) : ''}</div></td>
-          <td>${stateBadge(o.state, o.state_label)}${o.waiting ? ` <span class="small">${o.waiting} to choose</span>` : ''}</td>
+          <td>${stateBadge(o.state, o.state_label)}${o.waiting ? ` <span class="small">${o.waiting} to choose</span>` : ''}${shippedNote(o)}</td>
           <td>${o.purchase_order ? `<a href="${esc(o.purchase_order.url)}" data-nav="${esc(o.purchase_order.url)}">${esc(o.purchase_order.reference)}</a>` : '—'}</td>
           ${full ? `<td>${money(o.total, o.currency)}</td>` : ''}
         </tr>
@@ -436,6 +469,83 @@ function dashboard(target, ctx, opts = {}) {
 
 /* ------------------------------------------------------------------ purchase order panel */
 
+/* ------------------------------------------------------------------ receive by Mouser invoice */
+
+// One block per Mouser invoice on the order: what's on it, and (for a box that hasn't been received)
+// a quantity per line - filled in when the line ships only once - plus where to put it.
+function renderReceive(el, ctx, pk, onReceived) {
+  let data = null;
+  let locations = null;
+  let open = null;
+  let message = null;
+
+  const load = async () => {
+    try {
+      data = await call(ctx, 'GET', `po/${pk}/invoices/`);
+      if (data.can_receive && locations === null) {
+        const r = await request(ctx, 'GET', '/api/stock/location/', null, { limit: 500 });
+        locations = Array.isArray(r) ? r : (r.results || []);
+      }
+    } catch (e) { message = { ok: false, text: e.message }; }
+  };
+
+  const draw = () => {
+    if (!data) { el.innerHTML = message ? `<div class="msg err">${esc(message.text)}</div>` : ''; return; }
+    const list = data.invoices || [];
+    if (!list.length) {
+      el.innerHTML = '<h4>Receive by Mouser invoice</h4><p class="small muted">No Mouser invoices on this order yet - '
+        + 'they appear here once Mouser ships (Check Mouser now to look).</p>';
+      return;
+    }
+    const recorded = Object.fromEntries((data.recorded || []).map((r) => [r.number, r]));
+    el.innerHTML = `<h4>Receive by Mouser invoice</h4>
+      ${message ? `<div class="msg ${message.ok ? 'ok' : 'err'}">${esc(message.text)}</div>` : ''}
+      <p class="small muted">Pick the invoice that came in the box. Each invoice is billed in Xero on its own, dated the invoice date.</p>
+      ${list.map((inv) => {
+        const rec = recorded[inv.number];
+        const head = `<div class="mr-row"><b>Invoice ${esc(inv.number)}</b> <span class="muted">${fmtDay(inv.date)}</span>
+          ${rec ? `<span class="badge ok">Received</span> <span class="small muted">due ${fmtDay(rec.due_date)}</span>` : '<span class="badge warn">Not received</span>'}
+          ${data.can_receive ? `<button class="small" data-open="${esc(inv.number)}">${open === inv.number ? 'Close' : (rec ? 'Receive more' : 'Receive')}</button>` : ''}</div>`;
+        if (open !== inv.number) {
+          return head + `<div class="small muted">${inv.lines.map((ln) => `${esc(ln.mouser_pn)}${ln.on_invoice ? ` × ${esc(ln.on_invoice)}` : ''}`).join(', ')}</div>`;
+        }
+        const rows = inv.lines.map((ln) => `<tr>
+            <td><code>${esc(ln.mouser_pn)}</code><div class="small muted">${esc(ln.part)}</div></td>
+            <td>${ln.ordered === null ? '—' : `${esc(ln.received)} / ${esc(ln.ordered)}`}</td>
+            <td>${ln.parts > 1 ? `<span class="badge info">ships in ${esc(ln.parts)} parts</span>` : ''}${ln.on_invoice ? ` <span class="small">${esc(ln.on_invoice)} on this invoice so far</span>` : ''}</td>
+            <td>${ln.line === null ? '<span class="small muted">not on the purchase order</span>'
+              : `<input type="number" min="0" step="any" style="width:90px" data-qty="${ln.line}" value="${ln.suggested === null ? '' : esc(ln.suggested)}"
+                  placeholder="${ln.parts > 1 ? 'in this box' : ''}">`}</td></tr>`).join('');
+        const opts = (locations || []).map((l) => `<option value="${l.pk}" ${l.pk === data.destination ? 'selected' : ''}>${esc(l.pathstring || l.name)}</option>`).join('');
+        return head + `<div class="tbl"><table><thead><tr><th>Line</th><th>Received</th><th></th><th>In this box</th></tr></thead>
+            <tbody>${rows}</tbody></table></div>
+          <div class="mr-row">Into <select data-location><option value="">Each line's default location</option>${opts}</select>
+            <button class="primary" data-receive="${esc(inv.number)}">Receive invoice ${esc(inv.number)}</button></div>`;
+      }).join('')}`;
+
+    el.querySelectorAll('button[data-open]').forEach((b) => b.addEventListener('click', () => {
+      open = open === b.dataset.open ? null : b.dataset.open;
+      message = null;
+      draw();
+    }));
+    el.querySelectorAll('button[data-receive]').forEach((b) => b.addEventListener('click', () => busy(b, async () => {
+      const lines = [...el.querySelectorAll('input[data-qty]')]
+        .map((i) => ({ line: Number(i.dataset.qty), quantity: i.value.trim() }))
+        .filter((l) => l.quantity !== '' && Number(l.quantity) > 0);
+      const loc = el.querySelector('select[data-location]');
+      try {
+        const r = await call(ctx, 'POST', `po/${pk}/receive/`, { invoice: b.dataset.receive, lines, location: loc && loc.value ? Number(loc.value) : null });
+        message = { ok: true, text: `Received invoice ${r.entry.number} - ${lines.length} line(s).` };
+        open = null;
+        await load();
+        if (onReceived) onReceived();
+      } catch (e) { message = { ok: false, text: e.message }; }
+      draw();
+    })));
+  };
+  load().then(draw);
+}
+
 function panel(target, ctx) {
   const root = shell(target);
   const pk = (ctx.context && ctx.context.pk) || ctx.id;
@@ -465,7 +575,7 @@ function panel(target, ctx) {
 
     root.innerHTML = `
       ${message ? `<div class="msg ${message.ok ? 'ok' : 'err'}">${esc(message.text)}</div>` : ''}
-      ${info.order ? '<div data-order></div>' : (meta.sales_order ? orderHeader({ ...meta, lines: [] }) : '')}
+      ${info.order ? '<div data-order></div><div data-receive></div>' : (meta.sales_order ? orderHeader({ ...meta, lines: [] }) : '')}
       ${!info.order ? `
         <h4>Mouser cart</h4>
         ${meta.cart_sent ? `<div class="small muted">Last sent ${fmtDate(meta.cart_sent)} (${money(meta.cart_total, meta.cart_currency)}),
@@ -480,6 +590,12 @@ function panel(target, ctx) {
 
     if (info.order) {
       renderOrderDetail(root.querySelector('[data-order]'), ctx, info.order, info.can_change, (order) => { info.order = order; });
+      if (info.order.purchase_order) {
+        renderReceive(root.querySelector('[data-receive]'), ctx, pk, () => load().then(() => {
+          const el = root.querySelector('[data-order]');
+          if (el && info.order) renderOrderDetail(el, ctx, info.order, info.can_change, (order) => { info.order = order; });
+        }));
+      }
     }
     wireNav(root, ctx);
     root.querySelectorAll('button[data-act="cart"]').forEach((btn) => btn.addEventListener('click', () => busy(btn, async () => {

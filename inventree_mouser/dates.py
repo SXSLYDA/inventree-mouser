@@ -27,3 +27,11 @@ def validate_start_date(value):
     if str(value or '').strip() and parse_start_date(str(value)) is None:
         from django.core.exceptions import ValidationError
         raise ValidationError(f"'{value}' isn't a date - use {START_DATE_HELP}.")
+
+
+def format_date(iso):
+    """An ISO date (YYYY-MM-DD, as Mouser's dates are stored) shown as DD-MM-YYYY; other text as it is."""
+    try:
+        return datetime.strptime(str(iso)[:10], '%Y-%m-%d').strftime(START_DATE_FORMAT)
+    except ValueError:
+        return str(iso or '')

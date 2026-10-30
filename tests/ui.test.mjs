@@ -255,3 +255,66 @@ test('Purchasing page panel: filters and totals', async () => {
   assert.doesNotMatch(el.querySelector('tbody').textContent, /282378302/);
   assert.match(el.textContent, /300000002/);
 });
+
+test('imported order: shipping per line, back orders and receiving', async () => {
+  const el = document.createElement('div');
+  const order = { ...IMPORTED, shipped_lines: 1, mouser_lines: 2, backorder_shipping_method: 'UPS Saver',
+    lines: [
+      { ...IMPORTED.lines[0], quantity: 75, mouser_quantity: 75, received: 40, ordered: 75,
+        shipments: [{ invoice: '93100001', date: '2026-10-24', quantity: null },
+                    { invoice: '93100003', date: '2026-11-02', quantity: null }] },
+      { ...IMPORTED.lines[1], quantity: 100, mouser_quantity: 60, received: 0, ordered: 100, shipments: [] },
+    ] };
+  const ctx = makeCtx({ 'GET status/': STATUS, 'GET orders/': { orders: [order] }, 'GET orders/1/': { order } });
+  ui.renderMouserDashboard(el, ctx);
+  await settle();
+  assert.match(el.querySelector('tr[data-order="1"]').textContent, /1 \/ 2 lines shipped/);
+  click(el.querySelector('tr[data-order="1"]'));
+  await settle();
+  const text = el.textContent;
+  assert.match(text, /Shipping/);
+  assert.match(text, /2 shipments/);
+  assert.match(text, /inv 93100003/);
+  assert.match(text, /Received 40 \/ 75/);
+  assert.match(text, /Not shipped yet/);
+  assert.match(text, /Mouser now 60 of 100/);
+  assert.match(text, /Back orders ship by\s*UPS Saver/);
+});
+
+test('purchase order panel: receive a box by its Mouser invoice', async () => {
+  const el = document.createElement('div');
+  const INVOICES = {
+    destination: 2, can_receive: true, recorded: [],
+    invoices: [
+      { number: '93170001', date: '2026-10-24', received: false, lines: [
+        { line: 51, mouser_pn: '650-RKEF135', part: 'RKEF135', ordered: 10, received: 0, on_invoice: 0, parts: 1, suggested: 10 },
+        { line: 52, mouser_pn: '650-RKEF110', part: 'RKEF110', ordered: 50, received: 0, on_invoice: 0, parts: 2, suggested: null }] },
+      { number: '93170002', date: '2026-11-02', received: false, lines: [
+        { line: 52, mouser_pn: '650-RKEF110', part: 'RKEF110', ordered: 50, received: 0, on_invoice: 0, parts: 2, suggested: null }] }],
+  };
+  let sent = null;
+  const ctx = makeCtx({
+    'GET po/3/': { reference: 'PO-0001', status: 20, is_pending: false, mouser: {}, order: IMPORTED, mouser_lines: 2,
+      other_lines: [], order_key: true, cart_url: '', can_change: true },
+    'GET po/3/invoices/': () => (sent ? { ...INVOICES, recorded: [{ number: '93170001', due_date: '2026-10-24' }],
+      invoices: [{ ...INVOICES.invoices[0], received: true }, INVOICES.invoices[1]] } : INVOICES),
+    'GET /api/stock/location/': { results: [{ pk: 2, name: 'Shelf', pathstring: 'Store/Shelf' }] },
+    'POST po/3/receive/': (data) => { sent = data; return { entry: { number: '93170001' }, invoices: [] }; },
+  }, { pk: 3 });
+  ui.renderMouserPanel(el, ctx);
+  await settle(); await settle();
+  assert.match(el.textContent, /Receive by Mouser invoice/);
+  assert.match(el.textContent, /Invoice 93170001/);
+  click(el.querySelector('button[data-open="93170001"]'));
+  await settle();
+  assert.equal(el.querySelector('input[data-qty="51"]').value, '10', 'single-shipment line filled in');
+  assert.equal(el.querySelector('input[data-qty="52"]').value, '', 'split line left to enter');
+  assert.match(el.textContent, /ships in 2 parts/);
+  assert.equal(el.querySelector('select[data-location]').value, '2', 'PO destination preselected');
+  el.querySelector('input[data-qty="52"]').value = '30';
+  click(el.querySelector('button[data-receive="93170001"]'));
+  await settle(); await settle();
+  assert.deepEqual(sent, { invoice: '93170001', location: 2,
+    lines: [{ line: 51, quantity: '10' }, { line: 52, quantity: '30' }] });
+  assert.match(el.textContent, /Received invoice 93170001/);
+});

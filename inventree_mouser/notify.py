@@ -91,6 +91,13 @@ def order_failed(plugin, order):
           order.message, ORDERS_LINK)
 
 
+def order_changed(plugin, order, what):
+    """Mouser cancelled the order, or cut a line's quantity, after its purchase order was made."""
+    po = order.purchase_order
+    _send(plugin, 'order_changed', po or order, f'Mouser order {order.sales_order} changed on Mouser',
+          what, PO_LINK.format(pk=po.pk) if po else ORDERS_LINK, once_a_day=False)
+
+
 def order_imported(plugin, order):
     from InvenTree.helpers import str2bool
 

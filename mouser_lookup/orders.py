@@ -70,15 +70,39 @@ def map_order_summary(item: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+# Mouser documents a shipment ("Activity") as invoice number + date only; if it also sends how
+# many were in it, it'll be under one of these.
+SHIPMENT_QUANTITY_KEYS = ("Quantity", "QuantityShipped", "ShippedQuantity", "ShipQuantity", "ShippedQty")
+
+
+def _shipment_quantity(activity: Dict[str, Any]) -> Optional[int]:
+    for key in SHIPMENT_QUANTITY_KEYS:
+        value = activity.get(key)
+        if value not in (None, ""):
+            try:
+                return int(Decimal(str(value)))
+            except (InvalidOperation, ValueError):
+                return None
+    return None
+
+
 def map_order_detail(raw: Dict[str, Any]) -> Dict[str, Any]:
     """
     A Mouser order (Order History API "OrderDetail") as a plain dict:
       sales_order, web_order, po_number, status, order_date, currency, buyer,
       totals {merchandise, fees, total}, tracking [{number, link}],
+      backorder_shipping_method,
       lines [{line_no, mouser_pn, mpn, manufacturer, description,
-              customer_pn, quantity, unit_price, ext_price, invoices, activity_dates}]
+              customer_pn, quantity, unit_price, ext_price, invoices, activity_dates,
+              shipments, shipped_quantity, fees [{code, amount}]}]
     Prices are Decimals. A line's ext_price is quantity x unit_price when
     Mouser leaves it out.
+
+    shipments: one {invoice, date, quantity} per shipment (Mouser's "Activities"),
+    oldest first - a back-ordered line has none yet, a line sent in parts has
+    several. Mouser's API documents only the invoice number and date of each;
+    quantity is filled only if Mouser includes one (SHIPMENT_QUANTITY_KEYS),
+    and shipped_quantity is their total only when every shipment has one.
     """
     raw = raw or {}
     lines = []
@@ -94,6 +118,10 @@ def map_order_detail(raw: Dict[str, Any]) -> Dict[str, Any]:
         if ext is None and unit is not None:
             ext = unit * quantity
         activities = [a for a in (line.get("Activities") or []) if isinstance(a, dict)]
+        shipments = sorted(({"invoice": _text(a.get("InvoiceNumber")), "date": _date(a.get("Date")),
+                             "quantity": _shipment_quantity(a)} for a in activities),
+                           key=lambda sh: (sh["date"], sh["invoice"]))
+        known = [sh["quantity"] for sh in shipments]
         lines.append({
             "line_no": index,
             "mouser_pn": _text(product.get("MouserPartNumber")),
@@ -106,6 +134,13 @@ def map_order_detail(raw: Dict[str, Any]) -> Dict[str, Any]:
             "ext_price": ext,
             "invoices": sorted({str(a["InvoiceNumber"]) for a in activities if a.get("InvoiceNumber")}),
             "activity_dates": sorted({_date(a.get("Date")) for a in activities if a.get("Date")}),
+            "shipments": shipments,
+            "shipped_quantity": sum(known) if known and None not in known else None,
+            # Mouser's additional fees on this line (tariff, handling...) - total for the line
+            "fees": [{"code": _text(f.get("code") or f.get("Code")),
+                      "amount": _decimal(f.get("extendedAmount") or f.get("ExtendedAmount")
+                                         or f.get("amount") or f.get("Amount"))}
+                     for f in line.get("AdditionalFees") or [] if isinstance(f, dict)],
         })
     payment = raw.get("PaymentDetail") or {}
     delivery = raw.get("DeliveryDetail") or {}
@@ -120,6 +155,7 @@ def map_order_detail(raw: Dict[str, Any]) -> Dict[str, Any]:
         "currency": _text(raw.get("CurrencyCode")).upper(),
         "buyer": _text(raw.get("BuyerName")),
         "shipping_method": _text(delivery.get("ShippingMethodName")),
+        "backorder_shipping_method": _text(delivery.get("BackOrderShippingMethodName")),
         "tracking": [{"number": _text(t.get("Number")), "link": _text(t.get("Link"))}
                      for t in delivery.get("TrackingDetails") or [] if isinstance(t, dict)],
         "totals": {

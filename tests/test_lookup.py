@@ -227,3 +227,21 @@ def test_start_date_validator():
     validate_start_date('')
     with pytest.raises(ValidationError, match='DD-MM-YYYY'):
         validate_start_date('2026-10-24')
+
+
+def test_shipments_per_line():
+    d = map_order_detail({'SalesOrderId': '1', 'DeliveryDetail': {'BackOrderShippingMethodName': 'UPS Saver'}, 'OrderLines': [
+        {'Quantity': 75, 'UnitPrice': 4.94, 'ProductInfo': {'MouserPartNumber': 'A'},
+         'Activities': [{'InvoiceNumber': 93000002, 'Date': '2026-10-20T00:00:00'},
+                        {'InvoiceNumber': 93000001, 'Date': '2026-10-09T00:00:00'}]},
+        {'Quantity': 50, 'UnitPrice': 1, 'ProductInfo': {'MouserPartNumber': 'B'}},               # back-ordered
+        {'Quantity': 10, 'UnitPrice': 1, 'ProductInfo': {'MouserPartNumber': 'C'},
+         'Activities': [{'InvoiceNumber': 1, 'Date': '2026-10-09', 'QuantityShipped': 6},
+                        {'InvoiceNumber': 2, 'Date': '2026-10-21', 'QuantityShipped': '4'}]}]})
+    a, b, c = d['lines']
+    assert [sh['invoice'] for sh in a['shipments']] == ['93000001', '93000002']     # oldest first
+    assert a['shipments'][0] == {'invoice': '93000001', 'date': '2026-10-09', 'quantity': None}
+    assert a['shipped_quantity'] is None                                           # Mouser didn't say how many
+    assert b['shipments'] == [] and b['shipped_quantity'] is None
+    assert c['shipped_quantity'] == 10                                             # it did here
+    assert d['backorder_shipping_method'] == 'UPS Saver'

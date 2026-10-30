@@ -90,6 +90,34 @@ Also:
   at checkout noted.
 - Cancelled Mouser orders are recorded as ignored. An error is recorded with its reason
   and tried again on the next check.
+- **After the purchase order is made, each check keeps it up to date with Mouser** — the order's
+  Mouser status, each line's shipments (with their invoices), tracking and totals, on the Mouser
+  Orders list and the purchase order's Mouser panel. That carries on for `Keep updating for` days
+  (180) after the order was placed, even outside the look-back window, until Mouser shows it
+  complete with every line shipped. Lines, quantities, prices and receiving are never changed by this.
+- **Back orders and split shipments.** The purchase order always has the full quantities ordered.
+  The Mouser panel's Shipping column shows, per line, each shipment Mouser has sent (date and
+  invoice), "Not shipped yet" for a back-ordered line, and how much InvenTree has received, and the
+  order lists show "3 / 5 lines shipped" until everything has gone. Receive each part as it arrives
+  with InvenTree's own Receive Items (part quantities are fine). Mouser's API gives each shipment's
+  invoice and date but not how many were in it, so the count comes from what you receive.
+- **Receive by Mouser invoice** (the Mouser panel on the purchase order). Mouser's API says which
+  lines are on which invoice but not how many, so pick the invoice that came in the box: its lines
+  are listed with the quantity filled in when a line only ships once (enter it when it ships in
+  parts), choose where it goes, and confirm. The stock is received with InvenTree's own receiving,
+  and the invoice is recorded on the purchase order (`metadata['supplier_invoices']`: number, date,
+  due date, lines and quantities, and the fees that relate to it - a line's fees go on the invoice it
+  first shipped on, order-level fees on the first invoice). The Xero plugin
+  ([inventree-xero](https://github.com/SXSLYDA/inventree-xero)) makes **one bill per Mouser invoice**
+  from that, dated the invoice date. Every purchase order the import makes is marked to be billed
+  this way, so receive Mouser boxes here rather than with Receive Items (stock received there isn't
+  on an invoice, so it isn't billed - the Xero panel lists it).
+- **Due dates:** *Mouser payment* - *Paid on order (card)*: due on the invoice date; *On account*:
+  the invoice date plus *Account terms (days)*. Only the bill's due date - no payment is recorded.
+- **Changes on Mouser are flagged, never applied for you:** a line Mouser cuts (e.g. the rest of a
+  back order cancelled - "Mouser now has 30 of the 50 ordered") or a whole order cancelled after
+  import. Each is noted on the order and sent as a notification; change or cancel the purchase
+  order yourself.
 
 ## Send to Mouser cart
 

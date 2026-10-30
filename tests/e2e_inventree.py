@@ -193,6 +193,7 @@ try:
     check('line qty 75', po_line.quantity == 75)
     check('nothing received', all(ln.received == 0 for ln in po.lines.all()))
     meta = po.metadata['mouser']
+    check('PO marked as billed per Mouser invoice (none yet)', po.metadata.get('supplier_invoices') == [])
     check('PO metadata: invoice + tracking', meta['invoices'] == ['92944398'] and meta['tracking'][0]['number'].startswith('1Z'))
     check('PO total = Mouser merchandise total', abs(po.total_price.amount - Decimal('872.86')) < Decimal('0.01'),
           po.total_price)
@@ -459,6 +460,194 @@ try:
     l11 = o11_row.lines.get()
     check('inactive match held as possible', o11_row.state == 'held' and l11.match == 'possible'
           and l11.candidates == [inactive.pk] and 'inactive' in l11.message, (l11.match, l11.message))
+
+    # ------------------------------------------------------------------ status / invoice / tracking kept up to date
+    section('An imported order keeps its Mouser status, invoice and tracking up to date')
+    o14 = copy.deepcopy(order_raw)
+    o14['SalesOrderId'], o14['WebOrderId'], o14['OrderDate'] = '300000014', 40700014, '2026-10-22T11:00:00'
+    o14['OrderLines'] = copy.deepcopy(order_raw['OrderLines'][1:2])     # RKEF110 - already in InvenTree
+    o14['OrderStatusName'] = 'Open'
+    o14['DeliveryDetail'] = {'ShippingMethodName': 'UPS', 'TrackingDetails': []}
+    for ln in o14['OrderLines']:
+        ln['Activities'] = []
+    live14 = fake.add_order(o14, status_display='Open')
+    importer.check(source='manual')
+    o14_row = MouserOrder.objects.get(sales_order='300000014')
+    po14 = o14_row.purchase_order
+    check('imported while open: no invoice, no tracking yet', o14_row.state == 'imported' and po14 is not None
+          and po14.metadata['mouser']['invoices'] == [] and po14.metadata['mouser']['status'] == 'Open',
+          (o14_row.state, o14_row.message))
+    imported_at = po14.metadata['mouser']['imported']
+    po14.lines.update(received=0)
+    # on Mouser: shipped, invoiced, complete
+    live14['OrderStatusName'] = 'Complete'
+    live14['_summary']['OrderStatusDisplay'] = 'Complete'
+    live14['DeliveryDetail']['TrackingDetails'] = [{'Number': '1ZNEW14', 'Link': 'https://www.ups.com/track?tracknum=1ZNEW14'}]
+    for ln in live14['OrderLines']:
+        ln['Activities'] = [{'InvoiceNumber': 93000014, 'Date': '2026-10-24T00:00:00'}]
+    lines_before = list(po14.lines.values_list('part_id', 'quantity', 'purchase_price'))
+    run = importer.check(source='manual')
+    o14_row.refresh_from_db()
+    po14.refresh_from_db()
+    check('check counts it as updated', run.counts.get('updated') == 1 and 'updated from Mouser' in run.message,
+          (run.counts, run.message))
+    check('Mouser status on the order', o14_row.mouser_status == 'Complete')
+    meta14 = po14.metadata['mouser']
+    check('PO gets the invoice, tracking and status', meta14['invoices'] == ['93000014']
+          and meta14['tracking'][0]['number'] == '1ZNEW14' and meta14['status'] == 'Complete', meta14)
+    check('import time kept, update time added', meta14['imported'] == imported_at and meta14.get('updated'))
+    check('noted on the order', 'invoice 93000014' in o14_row.message and 'tracking 1ZNEW14' in o14_row.message,
+          o14_row.message)
+    check('PO lines, prices and status untouched', list(po14.lines.values_list('part_id', 'quantity', 'purchase_price'))
+          == lines_before and po14.status == PurchaseOrderStatus.PLACED.value)
+    r = client.get(f'/plugin/mouser/api/po/{po14.pk}/')
+    check('PO panel shows the invoice', r.status_code == 200 and r.json()['order']['invoices'] == ['93000014'],
+          r.content[:300])
+    asked = len([c for c in fake.calls if c[1] == '/orderhistory/salesOrderNumber'
+                 and c[2].get('salesOrderNumber') == '300000014'])
+    run = importer.check(source='manual')
+    check('complete and invoiced: Mouser not asked again', asked == len([
+        c for c in fake.calls if c[1] == '/orderhistory/salesOrderNumber' and c[2].get('salesOrderNumber') == '300000014'])
+          and not run.counts.get('updated'), run.counts)
+
+    section('...also for orders older than the look-back window')
+    o15 = copy.deepcopy(o14)
+    recent = (timezone.localdate() - timedelta(days=20)).isoformat()
+    o15['SalesOrderId'], o15['WebOrderId'], o15['OrderDate'] = '300000015', 40700015, f'{recent}T09:00:00'
+    live15 = fake.add_order(o15, status_display='Open')
+    o15_row = importer.import_number('300000015')
+    check('imported while open', o15_row.state == 'imported' and o15_row.mouser_status == 'Open', o15_row.message)
+    live15['OrderStatusName'] = 'Cancelled'
+    live15['_summary']['OrderStatusDisplay'] = 'Cancelled'
+    plugin.set_setting('ORDER_LOOKBACK_DAYS', 1)
+    run = importer.check(source='manual')
+    plugin.set_setting('ORDER_LOOKBACK_DAYS', 365)
+    o15_row.refresh_from_db()
+    check('outside the window, still refreshed', o15_row.mouser_status == 'Cancelled' and run.counts.get('updated') == 1,
+          (o15_row.mouser_status, run.counts))
+    check('cancelled after import: flagged, PO left for a person', 'CANCELLED on Mouser' in o15_row.message
+          and o15_row.purchase_order.status == PurchaseOrderStatus.PLACED.value, o15_row.message)
+
+    # ------------------------------------------------------------------ back orders and split shipments
+    section('Back orders and split shipments')
+    o16 = copy.deepcopy(order_raw)
+    o16['SalesOrderId'], o16['WebOrderId'], o16['OrderDate'] = '300000016', 40700016, '2026-10-23T09:00:00'
+    o16['OrderLines'] = copy.deepcopy(order_raw['OrderLines'][:2])          # RKEF135 x10, RKEF110 x10
+    o16['OrderLines'][1]['Quantity'] = 50
+    o16['OrderLines'][0]['Activities'] = [{'InvoiceNumber': 93100001, 'Date': '2026-10-24T00:00:00'}]
+    o16['OrderLines'][1]['Activities'] = []                                  # back-ordered
+    o16['OrderStatusName'] = 'Open'
+    o16['DeliveryDetail'] = {'ShippingMethodName': 'UPS', 'BackOrderShippingMethodName': 'UPS Saver', 'TrackingDetails': []}
+    live16 = fake.add_order(o16, status_display='Open')
+    importer.check(source='manual')
+    o16_row = MouserOrder.objects.get(sales_order='300000016')
+    po16 = o16_row.purchase_order
+    check('part-shipped order imported with the full quantities', o16_row.state == 'imported'
+          and sorted(po16.lines.values_list('quantity', flat=True)) == [10, 50], o16_row.message)
+    check('not settled while a line is back-ordered', not importer.settled(o16_row))
+    r = client.get(f'/plugin/mouser/api/orders/{o16_row.pk}/')
+    d16 = r.json()['order']
+    by_pn = {ln['mouser_pn']: ln for ln in d16['lines']}
+    check('API: 1 / 2 lines shipped', d16['shipped_lines'] == 1 and d16['mouser_lines'] == 2, d16)
+    check('API: shipped line has its shipment, back order has none',
+          by_pn['650-RKEF135']['shipments'][0]['invoice'] == '93100001' and by_pn['650-RKEF110']['shipments'] == [],
+          by_pn)
+    check('API: received so far from the PO', by_pn['650-RKEF110']['received'] == 0
+          and by_pn['650-RKEF110']['ordered'] == 50, by_pn['650-RKEF110'])
+    check('API: back-order shipping method', d16['backorder_shipping_method'] == 'UPS Saver')
+    # first part of the back order ships; the first line ships again (split)
+    live16['OrderLines'][1]['Activities'] = [{'InvoiceNumber': 93100002, 'Date': '2026-11-02T00:00:00'}]
+    live16['OrderLines'][0]['Activities'].append({'InvoiceNumber': 93100003, 'Date': '2026-11-02T00:00:00'})
+    run = importer.check(source='manual')
+    o16_row.refresh_from_db()
+    check('new shipments noted, line by line', run.counts.get('updated') == 1
+          and '650-RKEF110 shipped - invoice 93100002, 02-11-2026' in o16_row.message
+          and '650-RKEF135 shipped - invoice 93100003' in o16_row.message, o16_row.message)
+    check('PO has every invoice', po16.__class__.objects.get(pk=po16.pk).metadata['mouser']['invoices']
+          == ['93100001', '93100002', '93100003'])
+    check('still open on Mouser -> still refreshed', not importer.settled(o16_row))
+    # Mouser cuts the rest of the back order: 50 -> 30, then completes the order
+    live16['OrderLines'][1]['Quantity'] = 30
+    live16['OrderStatusName'] = 'Complete'
+    live16['_summary']['OrderStatusDisplay'] = 'Complete'
+    from common.models import NotificationMessage
+    run = importer.check(source='manual')
+    o16_row.refresh_from_db()
+    check('cut quantity flagged', 'Mouser now has 30 of the 50 ordered' in o16_row.message, o16_row.message)
+    check('...and notified', NotificationMessage.objects.filter(user=admin, category='mouser.order_changed').exists())
+    check('PO line not changed for you', po16.lines.filter(quantity=50).exists())
+    check('complete and every line shipped -> settled', importer.settled(o16_row))
+    r = client.get(f'/plugin/mouser/api/orders/{o16_row.pk}/')
+    rk110 = next(ln for ln in r.json()['order']['lines'] if ln['mouser_pn'] == '650-RKEF110')
+    check('API shows Mouser now 30 of 50', rk110['mouser_quantity'] == 30 and rk110['quantity'] == 50, rk110)
+
+    # ------------------------------------------------------------------ receive by Mouser invoice
+    section('Receive a box by its Mouser invoice')
+    from stock.models import StockLocation
+    shelf, _ = StockLocation.objects.get_or_create(name='Mouser shelf')
+    o17 = copy.deepcopy(order_raw)
+    o17['SalesOrderId'], o17['WebOrderId'], o17['OrderDate'] = '300000017', 40700017, '2026-10-23T10:00:00'
+    o17['OrderLines'] = copy.deepcopy(order_raw['OrderLines'][:2])          # RKEF135 x10, RKEF110 x50
+    o17['OrderLines'][1]['Quantity'] = 50
+    o17['OrderLines'][0]['Activities'] = [{'InvoiceNumber': 93170001, 'Date': '2026-10-24T00:00:00'}]
+    o17['OrderLines'][0]['AdditionalFees'] = [{'code': 'TARIFF', 'amount': '0.32', 'extendedAmount': '3.20'}]
+    o17['OrderLines'][1]['Activities'] = [{'InvoiceNumber': 93170001, 'Date': '2026-10-24T00:00:00'},
+                                          {'InvoiceNumber': 93170002, 'Date': '2026-11-02T00:00:00'}]
+    o17['SummaryDetail']['AdditionalFeesTotal'] = '$5.00'
+    fake.add_order(o17, status_display='Complete')
+    importer.check(source='manual')
+    po17 = MouserOrder.objects.get(sales_order='300000017').purchase_order
+    check('order imported and placed', po17 is not None and po17.status == PurchaseOrderStatus.PLACED.value)
+    r = client.get(f'/plugin/mouser/api/po/{po17.pk}/invoices/')
+    invs = r.json()['invoices']
+    check('two invoices, oldest first', [i['number'] for i in invs] == ['93170001', '93170002'], invs)
+    first = {ln['mouser_pn']: ln for ln in invs[0]['lines']}
+    check('line on one invoice: quantity filled in', first['650-RKEF135']['suggested'] == 10, first)
+    check('line in two parts: left for you to enter', first['650-RKEF110']['suggested'] is None
+          and first['650-RKEF110']['parts'] == 2, first)
+    line_a = po17.lines.get(part__SKU='650-RKEF135')
+    line_b = po17.lines.get(part__SKU='650-RKEF110')
+    stock_before = line_b.part.part.total_stock
+    r = client.post(f'/plugin/mouser/api/po/{po17.pk}/receive/',
+                    {'invoice': '93170001', 'location': shelf.pk,
+                     'lines': [{'line': line_a.pk, 'quantity': 10}, {'line': line_b.pk, 'quantity': 30}]},
+                    content_type='application/json')
+    check('first box received', r.status_code == 200, r.content[:300])
+    line_a.refresh_from_db()
+    line_b.refresh_from_db()
+    check('stock received through InvenTree', line_a.received == 10 and line_b.received == 30
+          and line_b.part.part.total_stock == stock_before + 30, (line_a.received, line_b.received))
+    po17.refresh_from_db()
+    inv1 = po17.metadata['supplier_invoices'][0]
+    check('invoice recorded: number, date, due on the day (paid on order)', inv1['number'] == '93170001'
+          and inv1['date'] == '2026-10-24' and inv1['due_date'] == '2026-10-24', inv1)
+    check('invoice lines and quantities', {(x['line'], x['quantity']) for x in inv1['lines']}
+          == {(line_a.pk, '10'), (line_b.pk, '30')}, inv1['lines'])
+    check('fees on the invoice they relate to: line tariff + order-level rest',
+          sorted(x['amount'] for x in inv1['extra']) == ['1.80', '3.20'], inv1['extra'])
+    r = client.post(f'/plugin/mouser/api/po/{po17.pk}/receive/',
+                    {'invoice': '93170002', 'lines': [{'line': line_b.pk, 'quantity': 25}]}, content_type='application/json')
+    check('more than is still to come -> refused', r.status_code == 400 and 'only 20' in r.json()['error'], r.content[:200])
+    r = client.post(f'/plugin/mouser/api/po/{po17.pk}/receive/',
+                    {'invoice': '99999', 'lines': [{'line': line_b.pk, 'quantity': 1}]}, content_type='application/json')
+    check('unknown invoice -> refused', r.status_code == 400, r.content[:200])
+    r = client.post(f'/plugin/mouser/api/po/{po17.pk}/receive/',
+                    {'invoice': '93170002', 'lines': [{'line': line_a.pk, 'quantity': 1}]}, content_type='application/json')
+    check('line not on that invoice -> refused', r.status_code == 400, r.content[:200])
+    plugin.set_setting('PAYMENT_TERMS', 'account')
+    plugin.set_setting('ACCOUNT_TERMS_DAYS', 30)
+    r = client.post(f'/plugin/mouser/api/po/{po17.pk}/receive/',
+                    {'invoice': '93170002', 'location': shelf.pk, 'lines': [{'line': line_b.pk, 'quantity': 20}]},
+                    content_type='application/json')
+    plugin.set_setting('PAYMENT_TERMS', 'on_order')
+    check('second box received', r.status_code == 200, r.content[:300])
+    po17.refresh_from_db()
+    inv2 = po17.metadata['supplier_invoices'][1]
+    check('on account: due after the terms', inv2['date'] == '2026-11-02' and inv2['due_date'] == '2026-12-02', inv2)
+    check('second invoice: only its own line, no fees again', [(x['line'], x['quantity']) for x in inv2['lines']]
+          == [(line_b.pk, '20')] and inv2['extra'] == [], inv2)
+    r = client.get(f'/plugin/mouser/api/po/{po17.pk}/invoices/')
+    check('both invoices show as received', all(i['received'] for i in r.json()['invoices']))
 
     # ------------------------------------------------------------------ failure is recorded and retried
     section('A failing order is recorded, then retried')

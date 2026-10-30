@@ -29,6 +29,9 @@ All settings are on the plugin's settings page in InvenTree (Admin Center → Pl
 | Import orders placed from | `ORDER_IMPORT_START` | (blank) | DD-MM-YYYY, e.g. 24-10-2026. Orders placed before this date are never imported (so orders already entered by hand aren't doubled up). Required for the daily check. |
 | Check at hour | `ORDER_IMPORT_HOUR` | `6` | Hour of the day (0-23, server time) the daily check runs at or after. |
 | Look back (days) | `ORDER_LOOKBACK_DAYS` | `14` | Each check asks Mouser for orders placed in this many days (never before the start date) |
+| Keep updating for (days) | `KEEP_UPDATING_DAYS` | `180` | After an order is made into a purchase order, keep its Mouser status, shipments, invoices and tracking up to date for this many days after it was placed (until everything has shipped and the order is complete) - long enough for back orders to arrive. |
+| Mouser payment | `PAYMENT_TERMS` | Paid on order (card) | How you pay Mouser - sets the due date recorded with each Mouser invoice (and so on its Xero bill). Paid on order (card): due on the invoice date. On account: due after the terms below. Options: Paid on order (card); On account (terms). |
+| Account terms (days) | `ACCOUNT_TERMS_DAYS` | `30` | With "On account": days from the invoice date to when it is due. |
 | New purchase orders are | `PO_STATUS` | Placed | Placed: ready to receive (and sent on to Xero by the Xero plugin, if it exports placed orders). Pending: left for a person to place. Options: Placed; Pending. |
 | Receive into | `PO_DESTINATION` | (blank) | Default stock location for the purchase orders the import makes (optional) |
 | Responsible | `PO_RESPONSIBLE` | (blank) | User or group name set as responsible on imported purchase orders. Needed if InvenTree requires a responsible owner on purchase orders. |

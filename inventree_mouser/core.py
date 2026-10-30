@@ -115,6 +115,27 @@ class MouserIntegrationPlugin(MouserSupplierMixin, AppMixin, ScheduleMixin, Sett
             'validator': [int, MinValueValidator(1), MaxValueValidator(365)],
             'default': 14,
         },
+        'KEEP_UPDATING_DAYS': {
+            'name': 'Keep updating for (days)',
+            'description': ('After an order is made into a purchase order, keep its Mouser status, shipments, invoices '
+                            'and tracking up to date for this many days after it was placed (until everything has '
+                            'shipped and the order is complete) - long enough for back orders to arrive'),
+            'validator': [int, MinValueValidator(7), MaxValueValidator(730)],
+            'default': 180,
+        },
+        'PAYMENT_TERMS': {
+            'name': 'Mouser payment',
+            'description': ('How you pay Mouser - sets the due date recorded with each Mouser invoice (and so on its '
+                            'Xero bill). Paid on order (card): due on the invoice date. On account: due after the terms below'),
+            'choices': [('on_order', 'Paid on order (card)'), ('account', 'On account (terms)')],
+            'default': 'on_order',
+        },
+        'ACCOUNT_TERMS_DAYS': {
+            'name': 'Account terms (days)',
+            'description': 'With "On account": days from the invoice date to when it is due',
+            'validator': [int, MinValueValidator(0), MaxValueValidator(180)],
+            'default': 30,
+        },
         'PO_STATUS': {
             'name': 'New purchase orders are',
             'description': ('Placed: ready to receive (and sent on to Xero by the Xero plugin, if it exports placed '
@@ -198,6 +219,8 @@ class MouserIntegrationPlugin(MouserSupplierMixin, AppMixin, ScheduleMixin, Sett
             path('api/lines/<int:pk>/', views.LineDecisionView.as_view(), name='api-line'),
             path('api/po/<int:pk>/', views.PurchaseOrderView.as_view(), name='api-po'),
             path('api/po/<int:pk>/cart/', views.CartView.as_view(), name='api-po-cart'),
+            path('api/po/<int:pk>/invoices/', views.InvoicesView.as_view(), name='api-po-invoices'),
+            path('api/po/<int:pk>/receive/', views.ReceiveView.as_view(), name='api-po-receive'),
         ]
 
     # ------------------------------------------------------------------ UI
