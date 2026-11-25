@@ -24,6 +24,8 @@ Add to InvenTree's `plugins.txt` (pin a release tag) and run `invoke update`:
 inventree-mouser @ git+https://github.com/SXSLYDA/inventree-mouser.git@v0.1.0
 ```
 
+Or from PyPI: add `inventree-mouser` (or pin a version, e.g. `inventree-mouser==0.1.7`) to `plugins.txt` and run `invoke update`.
+
 Or on a package-installer server, `sudo inventree-mouser-update` (install it once — see the top
 of `tools/server-update.sh`): it adds or moves that line, backs up, updates and restarts.
 

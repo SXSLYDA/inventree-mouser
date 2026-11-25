@@ -4,6 +4,12 @@ Add notes for the next release under **Unreleased** as you work. `build-and-bump
 
 ## Unreleased
 
+## 0.1.8 — 2026-11-25
+
+- Published to PyPI: release tags are now also built and uploaded to PyPI (trusted publishing) after all tests pass; install with `inventree-mouser` in plugins.txt
+- CI builds the package and runs `twine check` on every push
+- Packaging: licence declared in the current SPDX form (no more setuptools deprecation warnings)
+
 ## 0.1.7 — 2026-10-30
 
 - **Receive by Mouser invoice** on a purchase order's Mouser panel: pick the invoice that came in the box, its lines are listed (quantity filled in when the line only ships once - enter it when the line ships in parts), choose a location and confirm. The stock is received with InvenTree's own receiving (all or nothing, never more than is still to come), and the invoice is recorded on the purchase order as `metadata['supplier_invoices']` - number, date, due date, lines and quantities, and the fees that relate to it (a line's fees on the invoice it first shipped on, order-level fees on the first invoice). The Xero plugin bills each invoice on its own from that (inventree-xero, next release). Purchase orders the import makes or updates are marked to be billed this way from the start.
