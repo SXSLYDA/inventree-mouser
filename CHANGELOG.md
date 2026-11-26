@@ -4,6 +4,8 @@ Add notes for the next release under **Unreleased** as you work. `build-and-bump
 
 ## Unreleased
 
+- Fixed the GitHub release step in CI: `--latest=auto` isn't a valid `gh release create` option, so the release failed after the tests passed. GitHub now picks the latest release itself (its default).
+
 ## 0.1.8 — 2026-11-25
 
 - Published to PyPI: release tags are now also built and uploaded to PyPI (trusted publishing) after all tests pass; install with `inventree-mouser` in plugins.txt
